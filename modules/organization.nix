@@ -29,6 +29,20 @@ let
   );
 
   inherit (config.immutableReleases) enforcedRepositories selectedRepositoryIds;
+
+  # The check runs before the null test, so a policy left at null cannot hide declared repository identifiers.
+  immutableReleasesBody =
+    if selectedRepositoryIds != [ ] && enforcedRepositories != "selected" then
+      throw "octonix: ${name} sets immutableReleases.selectedRepositoryIds, which requires enforcedRepositories = \"selected\""
+    else if enforcedRepositories == null then
+      null
+    else
+      {
+        enforced_repositories = enforcedRepositories;
+      }
+      // lib.optionalAttrs (enforcedRepositories == "selected") {
+        selected_repository_ids = selectedRepositoryIds;
+      };
 in
 {
   options = {
@@ -105,20 +119,11 @@ in
         body = settingsBody;
       };
     }
-    // lib.optionalAttrs (enforcedRepositories != null) {
+    // lib.optionalAttrs (immutableReleasesBody != null) {
       "${name}/immutable-releases" = {
         method = "PUT";
         endpoint = "orgs/${name}/settings/immutable-releases";
-        body =
-          if enforcedRepositories == "selected" then
-            {
-              enforced_repositories = enforcedRepositories;
-              selected_repository_ids = selectedRepositoryIds;
-            }
-          else if selectedRepositoryIds != [ ] then
-            throw "octonix: ${name} sets immutableReleases.selectedRepositoryIds, which requires enforcedRepositories = \"selected\""
-          else
-            { enforced_repositories = enforcedRepositories; };
+        body = immutableReleasesBody;
       };
     };
 }
