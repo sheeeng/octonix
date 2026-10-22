@@ -37,8 +37,9 @@ evaluation.
 Octonix prefers idempotent `PATCH` and `PUT` requests. A request that must
 run only one time sets `skipIfExists` to an endpoint. The switch script
 skips the request when that endpoint exists and sends it when GitHub
-returns HTTP 404. Any other failure stops the switch before it changes
-anything.
+returns HTTP 404. Any other failure stops the switch before it sends that
+request. The switch checks each endpoint just before its request, so
+earlier requests in the same switch can already have changed GitHub.
 
 Each switch unarchives a repository before it applies settings, and
 archives the repository again at the end when `archived` is true. A
