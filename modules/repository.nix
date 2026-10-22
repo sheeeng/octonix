@@ -49,7 +49,7 @@ in
     defaultBranch = mkOption {
       type = types.str;
       default = "main";
-      description = "The default branch name.";
+      description = "The default branch name. Octonix creates this branch in an empty repository. It does not create or rename branches in a repository that has commits.";
     };
 
     deleteBranchOnMerge = mkOption {
@@ -85,9 +85,30 @@ in
       body = {
         inherit name;
         inherit (config) visibility;
-        auto_init = true;
+        auto_init = false;
       };
       skipIfExists = "repos/${slug}";
+    };
+
+    # GitHub rejects edits to an archived repository, so every switch unarchives first.
+    "${slug}/unarchive" = {
+      method = "PATCH";
+      endpoint = "repos/${slug}";
+      body.archived = false;
+      after = [ "${slug}/create" ];
+    };
+
+    # The first commit of an empty repository creates the default branch. A repository with other branches returns HTTP 404 instead.
+    "${slug}/initialize" = {
+      method = "PUT";
+      endpoint = "repos/${slug}/contents/README.md";
+      body = {
+        message = "Initialize the repository.";
+        content = "";
+        branch = config.defaultBranch;
+      };
+      skipIfExists = "repos/${slug}/branches/${config.defaultBranch}";
+      after = [ "${slug}/unarchive" ];
     };
 
     "${slug}/settings" = {
@@ -101,7 +122,7 @@ in
         default_branch = config.defaultBranch;
         delete_branch_on_merge = config.deleteBranchOnMerge;
       };
-      after = [ "${slug}/create" ];
+      after = [ "${slug}/initialize" ];
     };
 
     "${slug}/topics" = {
@@ -110,21 +131,13 @@ in
       body.names = config.topics;
       after = [ "${slug}/settings" ];
     };
-
-    # GitHub rejects edits to an archived repository, so archiving runs last and unarchiving runs first.
+  }
+  // lib.optionalAttrs config.archived {
     "${slug}/archive" = {
       method = "PATCH";
       endpoint = "repos/${slug}";
-      body.archived = config.archived;
-    }
-    // (
-      if config.archived then
-        { after = [ "${slug}/topics" ]; }
-      else
-        {
-          after = [ "${slug}/create" ];
-          before = [ "${slug}/settings" ];
-        }
-    );
+      body.archived = true;
+      after = [ "${slug}/topics" ];
+    };
   };
 }

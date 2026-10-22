@@ -9,7 +9,9 @@ let
   unknownReferences = lib.concatMap (
     entry:
     map (reference: "${entry.name} -> ${reference}") (
-      lib.filter (reference: !config.requestGraph ? ${reference}) (entry.after ++ entry.before)
+      lib.filter (reference: reference == entry.name || !config.requestGraph ? ${reference}) (
+        entry.after ++ entry.before
+      )
     )
   ) entries;
 in
@@ -41,7 +43,7 @@ in
 
     requests =
       if unknownReferences != [ ] then
-        throw "octonix: these requests reference unknown requests: ${lib.concatStringsSep ", " unknownReferences}"
+        throw "octonix: these requests reference unknown requests or themselves: ${lib.concatStringsSep ", " unknownReferences}"
       else if sorted ? cycle then
         throw "octonix: the request graph contains a cycle: ${
           lib.concatMapStringsSep " -> " (entry: entry.name) sorted.cycle

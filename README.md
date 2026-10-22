@@ -31,11 +31,17 @@ enter the Nix store.
 
 Each request has a name, a method, an endpoint, and a body. The `after` and
 `before` options order the requests, and `lib.toposort` sorts them. An
-unknown reference or a cycle stops the evaluation.
+unknown reference, a reference to the same request, or a cycle stops the
+evaluation.
 
-Octonix prefers idempotent `PATCH` and `PUT` requests. A `POST` request sets
-`skipIfExists` to an endpoint, and the switch script skips the request when
-that endpoint exists.
+Octonix prefers idempotent `PATCH` and `PUT` requests. A request that must
+run only one time sets `skipIfExists` to an endpoint, and the switch script
+skips the request when that endpoint exists.
+
+Each switch unarchives a repository before it applies settings, and
+archives the repository again at the end when `archived` is true. Octonix
+creates the default branch in an empty repository. It does not create or
+rename branches in a repository that has commits.
 
 ## Layout
 
