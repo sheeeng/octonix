@@ -58,6 +58,7 @@ in
               endpoint
               body
               skipIfExists
+              onFailure
               ;
           }
         ) sorted.result;

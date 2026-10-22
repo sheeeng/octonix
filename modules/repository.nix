@@ -9,6 +9,11 @@
 let
   inherit (lib) mkOption types;
   slug = "${organization}/${name}";
+  archive = {
+    method = "PATCH";
+    endpoint = "repos/${slug}";
+    body.archived = true;
+  };
 in
 {
   options = {
@@ -90,11 +95,12 @@ in
       skipIfExists = "repos/${slug}";
     };
 
-    # GitHub rejects edits to an archived repository, so every switch unarchives first.
+    # GitHub rejects edits to an archived repository, so every switch unarchives first and archives again when a later request fails.
     "${slug}/unarchive" = {
       method = "PATCH";
       endpoint = "repos/${slug}";
       body.archived = false;
+      onFailure = if config.archived then archive else null;
       after = [ "${slug}/create" ];
     };
 
@@ -107,7 +113,7 @@ in
         content = "";
         branch = config.defaultBranch;
       };
-      skipIfExists = "repos/${slug}/branches/${config.defaultBranch}";
+      skipIfExists = "repos/${slug}/branches/${lib.escapeURL config.defaultBranch}";
       after = [ "${slug}/unarchive" ];
     };
 
@@ -133,10 +139,7 @@ in
     };
   }
   // lib.optionalAttrs config.archived {
-    "${slug}/archive" = {
-      method = "PATCH";
-      endpoint = "repos/${slug}";
-      body.archived = true;
+    "${slug}/archive" = archive // {
       after = [ "${slug}/topics" ];
     };
   };

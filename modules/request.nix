@@ -36,7 +36,36 @@ in
     skipIfExists = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "The endpoint that the switch script reads first. A successful read skips this request, which makes a POST request idempotent.";
+      description = "The endpoint that the switch script reads first. A successful read skips this request, and an HTTP 404 response runs it. Any other failure stops the switch.";
+    };
+
+    onFailure = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            method = mkOption {
+              type = types.enum [
+                "DELETE"
+                "PATCH"
+                "POST"
+                "PUT"
+              ];
+              description = "The HTTP method of the cleanup request.";
+            };
+            endpoint = mkOption {
+              type = types.str;
+              description = "The GitHub API endpoint of the cleanup request.";
+            };
+            body = mkOption {
+              type = types.attrsOf types.anything;
+              default = { };
+              description = "The JSON body of the cleanup request.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "The request that the switch script sends when a later request fails. The script registers it only after this request succeeds.";
     };
 
     after = mkOption {

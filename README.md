@@ -35,11 +35,16 @@ unknown reference, a reference to the same request, or a cycle stops the
 evaluation.
 
 Octonix prefers idempotent `PATCH` and `PUT` requests. A request that must
-run only one time sets `skipIfExists` to an endpoint, and the switch script
-skips the request when that endpoint exists.
+run only one time sets `skipIfExists` to an endpoint. The switch script
+skips the request when that endpoint exists and sends it when GitHub
+returns HTTP 404. Any other failure stops the switch before it changes
+anything.
 
 Each switch unarchives a repository before it applies settings, and
-archives the repository again at the end when `archived` is true. Octonix
+archives the repository again at the end when `archived` is true. A
+request can set `onFailure`, and the switch script sends that cleanup
+request when a later request fails. This archives the repository again
+after a failed switch. Octonix
 creates the default branch in an empty repository. It does not create or
 rename branches in a repository that has commits.
 
