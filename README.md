@@ -49,6 +49,15 @@ after a failed switch. Octonix
 creates the default branch in an empty repository. It does not create or
 rename branches in a repository that has commits.
 
+## Resources
+
+Declare organization settings in `organizations.<name>.settings` and the
+immutable releases policy in `organizations.<name>.immutableReleases`.
+Octonix sends only the settings that you declare, so other settings keep
+their live values.
+
+Declare repositories in `organizations.<name>.repositories.<name>`.
+
 ## Layout
 
 The `modules` directory holds the option declarations. The `lib` directory
