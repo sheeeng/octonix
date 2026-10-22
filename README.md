@@ -11,17 +11,27 @@ interface with `gh auth login`.
 
 ## Usage
 
-Show the ordered requests. This is the dry run.
+Show the ordered requests without network access.
 
 ```bash
 nix eval --json .#requests
 ```
 
-Send the requests to GitHub.
+Compare the requests with the live GitHub state, and show the pending
+changes without a write.
+
+```bash
+nix run .#build
+```
+
+Show the same comparison, and send only the requests that change GitHub.
 
 ```bash
 nix run .#switch
 ```
+
+Each line starts with `+` for a create, `~` for a change, or `=` for no
+change. A change shows each field with its live value and its new value.
 
 ## Design
 

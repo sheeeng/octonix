@@ -23,10 +23,20 @@
 
       inherit (exampleConfiguration) requests;
 
-      packages = forAllSystems (system: rec {
-        default = switch;
-        switch = octonixLib.mkSwitch nixpkgs.legacyPackages.${system} exampleConfiguration.requests;
-      });
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        rec {
+          default = switch;
+          switch = octonixLib.mkSwitch pkgs exampleConfiguration.requests;
+          build = pkgs.writeShellApplication {
+            name = "octonix-build";
+            text = ''exec ${nixpkgs.lib.getExe switch} --build "$@"'';
+          };
+        }
+      );
 
       devShells = forAllSystems (
         system:
@@ -47,7 +57,7 @@
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       checks = forAllSystems (system: {
-        inherit (self.packages.${system}) switch;
+        inherit (self.packages.${system}) build switch;
       });
     };
 }
