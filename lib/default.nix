@@ -16,10 +16,14 @@
         pkgs.jq
       ];
       text = ''
-        mode=switch
-        if [[ ''${1-} == --build ]]; then
-          mode=build
-        fi
+        case "$*" in
+          "") mode=switch ;;
+          --build) mode=build ;;
+          *)
+            echo "usage: octonix-switch [--build]" >&2
+            exit 2
+            ;;
+        esac
 
         if [[ -t 1 ]]; then
           green=$'\e[32m' yellow=$'\e[33m' red=$'\e[31m' dim=$'\e[2m' reset=$'\e[0m'
@@ -150,6 +154,7 @@
               done < <(jq --raw-output 'to_entries[] | "\(.key)\t\(.value | tojson)"' <<<"$creates")
             fi
             if [[ ($action == create || $action == change) && ($method == PATCH || $method == PUT) ]]; then
+              presence[$endpoint]=present
               remember "$endpoint" "$body"
             fi
             if [[ $action == delete ]]; then

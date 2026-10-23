@@ -9,6 +9,7 @@
 let
   inherit (lib) mkOption types;
   slug = "${organization}/${name}";
+  branchEndpoint = "repos/${slug}/branches/${lib.escapeURL config.defaultBranch}";
   archive = {
     method = "PATCH";
     endpoint = "repos/${slug}";
@@ -127,7 +128,9 @@ in
         content = "";
         branch = config.defaultBranch;
       };
-      skipIfExists = "repos/${slug}/branches/${lib.escapeURL config.defaultBranch}";
+      skipIfExists = branchEndpoint;
+      # GitHub keeps the default branch of the organization after the first commit, so only the branch itself is projected.
+      creates.${branchEndpoint}.name = config.defaultBranch;
       after = [ "${slug}/unarchive" ];
     };
 
