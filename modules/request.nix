@@ -39,6 +39,12 @@ in
       description = "The endpoint that the switch script reads first. A successful read skips this request, and an HTTP 404 response runs it. Any other failure stops the switch.";
     };
 
+    creates = mkOption {
+      type = types.attrsOf (types.attrsOf types.anything);
+      default = { };
+      description = "The endpoints that this request creates, with the fields that GitHub returns for each endpoint right after the creation. Build mode uses them to preview later requests.";
+    };
+
     onFailure = mkOption {
       type = types.nullOr (
         types.submodule {

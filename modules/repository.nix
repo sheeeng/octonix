@@ -93,6 +93,20 @@ in
         auto_init = false;
       };
       skipIfExists = "repos/${slug}";
+      # These fields are the documented defaults of the create endpoint.
+      creates = {
+        "repos/${slug}" = {
+          inherit name;
+          inherit (config) visibility;
+          archived = false;
+          delete_branch_on_merge = false;
+          description = null;
+          has_issues = true;
+          has_projects = true;
+          has_wiki = true;
+        };
+        "repos/${slug}/topics".names = [ ];
+      };
     };
 
     # GitHub rejects edits to an archived repository, so every switch unarchives first and archives again when a later request fails.

@@ -32,7 +32,7 @@
 
         created=0 changed=0 deleted=0 unchanged=0
         cleanups=()
-        declare -A projected=()
+        declare -A projected=() presence=()
 
         run_cleanups() {
           local status=$? index
@@ -77,31 +77,45 @@
           '
         }
 
-        # The project function applies the pending bodies of earlier requests to live, because build mode does not send them.
-        project() {
+        # Build mode does not send requests, so it records their effects. The presence array holds present or absent for each endpoint, and the projected array holds pending fields.
+        remember() {
           local pending=''${projected[$1]-}
+          projected[$1]=$(jq --null-input --compact-output --argjson pending "''${pending:-null}" --argjson body "$2" '($pending // {}) + $body')
+        }
+
+        # The observe function reads an endpoint like fetch, and then applies the recorded effects of earlier requests.
+        observe() {
+          local endpoint=$1 found=0 pending
+          if [[ ''${presence[$endpoint]-} == absent ]]; then
+            live='{}'
+            return 1
+          fi
+          fetch "$endpoint" || found=1
+          if [[ ''${presence[$endpoint]-} == present ]]; then
+            found=0
+          fi
+          pending=''${projected[$endpoint]-}
           if [[ -n $pending ]]; then
             live=$(jq --null-input --compact-output --argjson live "$live" --argjson pending "$pending" '$live + $pending')
           fi
+          return "$found"
         }
 
         reconcile() {
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
-          local failure_method=$6 failure_endpoint=$7 failure_body=$8
-          local action changes="" pending
+          local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9
+          local action changes="" resource state
 
           if [[ -n $skip_if_exists ]]; then
-            if fetch "$skip_if_exists"; then action=unchanged; else action=create; fi
+            if observe "$skip_if_exists"; then action=unchanged; else action=create; fi
           elif [[ $method == POST ]]; then
             action=create
           elif [[ $method == DELETE ]]; then
-            if fetch "$endpoint"; then action=delete; else action=unchanged; fi
-          elif fetch "$endpoint"; then
-            project "$endpoint"
+            if observe "$endpoint"; then action=delete; else action=unchanged; fi
+          elif observe "$endpoint"; then
             changes=$(difference "$body")
             if [[ -z $changes ]]; then action=unchanged; else action=change; fi
           else
-            project "$endpoint"
             changes=$(difference "$body")
             action=create
           fi
@@ -129,9 +143,18 @@
           fi
 
           if [[ $mode == build ]]; then
-            if [[ $action != unchanged && ($method == PATCH || $method == PUT) ]]; then
-              pending=''${projected[$endpoint]-}
-              projected[$endpoint]=$(jq --null-input --compact-output --argjson pending "''${pending:-null}" --argjson body "$body" '($pending // {}) + $body')
+            if [[ $action == create ]]; then
+              while IFS=$'\t' read -r resource state; do
+                presence[$resource]=present
+                remember "$resource" "$state"
+              done < <(jq --raw-output 'to_entries[] | "\(.key)\t\(.value | tojson)"' <<<"$creates")
+            fi
+            if [[ ($action == create || $action == change) && ($method == PATCH || $method == PUT) ]]; then
+              remember "$endpoint" "$body"
+            fi
+            if [[ $action == delete ]]; then
+              presence[$endpoint]=absent
+              unset 'projected[$endpoint]'
             fi
             return
           fi
@@ -161,6 +184,7 @@
           (if onFailure == null then "" else onFailure.method)
           (if onFailure == null then "" else onFailure.endpoint)
           (if onFailure == null then "" else builtins.toJSON onFailure.body)
+          (builtins.toJSON (request.creates or { }))
         ]
       ) requests
       + ''

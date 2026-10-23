@@ -51,7 +51,7 @@ in
       else
         map (
           entry:
-          lib.filterAttrs (_: value: value != null) {
+          lib.filterAttrs (option: value: value != null && !(option == "creates" && value == { })) {
             inherit (entry)
               name
               method
@@ -59,6 +59,7 @@ in
               body
               skipIfExists
               onFailure
+              creates
               ;
           }
         ) sorted.result;
