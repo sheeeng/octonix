@@ -30,8 +30,11 @@ Show the same comparison, and send only the requests that change GitHub.
 nix run .#switch
 ```
 
-Each line starts with `+` for a create, `~` for a change, or `=` for no
-change. A change shows each field with its live value and its new value.
+Each line starts with `+` for a create, `~` for a change, `-` for a
+delete, or `=` for no change. A change shows each field with its live
+value and its new value. The build applies the pending changes of earlier
+requests before it compares later requests, so it shows the same changes
+that the switch sends.
 
 ## Design
 

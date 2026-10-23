@@ -22,16 +22,17 @@
         fi
 
         if [[ -t 1 ]]; then
-          green=$'\e[32m' yellow=$'\e[33m' dim=$'\e[2m' reset=$'\e[0m'
+          green=$'\e[32m' yellow=$'\e[33m' red=$'\e[31m' dim=$'\e[2m' reset=$'\e[0m'
         else
-          green="" yellow="" dim="" reset=""
+          green="" yellow="" red="" dim="" reset=""
         fi
 
         GH_TOKEN="$(gh auth token)"
         export GH_TOKEN
 
-        created=0 changed=0 unchanged=0
+        created=0 changed=0 deleted=0 unchanged=0
         cleanups=()
+        declare -A projected=()
 
         run_cleanups() {
           local status=$? index
@@ -76,42 +77,69 @@
           '
         }
 
+        # The project function applies the pending bodies of earlier requests to live, because build mode does not send them.
+        project() {
+          local pending=''${projected[$1]-}
+          if [[ -n $pending ]]; then
+            live=$(jq --null-input --compact-output --argjson live "$live" --argjson pending "$pending" '$live + $pending')
+          fi
+        }
+
         reconcile() {
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
           local failure_method=$6 failure_endpoint=$7 failure_body=$8
-          local changes=""
+          local action changes="" pending
 
           if [[ -n $skip_if_exists ]]; then
-            if fetch "$skip_if_exists"; then
-              echo "''${dim}= $name''${reset}"
-              unchanged=$((unchanged + 1))
-              return
-            fi
-            echo "''${green}+ $name''${reset}"
-            created=$((created + 1))
+            if fetch "$skip_if_exists"; then action=unchanged; else action=create; fi
           elif [[ $method == POST ]]; then
-            echo "''${green}+ $name''${reset}"
-            created=$((created + 1))
+            action=create
+          elif [[ $method == DELETE ]]; then
+            if fetch "$endpoint"; then action=delete; else action=unchanged; fi
           elif fetch "$endpoint"; then
+            project "$endpoint"
             changes=$(difference "$body")
-            if [[ -z $changes ]]; then
+            if [[ -z $changes ]]; then action=unchanged; else action=change; fi
+          else
+            project "$endpoint"
+            changes=$(difference "$body")
+            action=create
+          fi
+
+          case $action in
+            create)
+              echo "''${green}+ $name''${reset}"
+              created=$((created + 1))
+              ;;
+            change)
+              echo "''${yellow}~ $name''${reset}"
+              changed=$((changed + 1))
+              ;;
+            delete)
+              echo "''${red}- $name''${reset}"
+              deleted=$((deleted + 1))
+              ;;
+            unchanged)
               echo "''${dim}= $name''${reset}"
               unchanged=$((unchanged + 1))
-              return
-            fi
-            echo "''${yellow}~ $name''${reset}"
+              ;;
+          esac
+          if [[ -n $changes ]]; then
             echo "$changes"
-            changed=$((changed + 1))
-          else
-            echo "''${green}+ $name''${reset}"
-            difference "$body"
-            created=$((created + 1))
           fi
 
           if [[ $mode == build ]]; then
+            if [[ $action != unchanged && ($method == PATCH || $method == PUT) ]]; then
+              pending=''${projected[$endpoint]-}
+              projected[$endpoint]=$(jq --null-input --compact-output --argjson pending "''${pending:-null}" --argjson body "$body" '($pending // {}) + $body')
+            fi
             return
           fi
-          printf '%s' "$body" | gh api --method "$method" --input - --silent "$endpoint"
+
+          if [[ $action != unchanged ]]; then
+            printf '%s' "$body" | gh api --method "$method" --input - --silent "$endpoint"
+          fi
+          # The cleanup also covers a request that was already satisfied, because a later failure can still leave the wrong state.
           if [[ -n $failure_method ]]; then
             cleanups+=("$failure_method" "$failure_endpoint" "$failure_body")
           fi
@@ -138,9 +166,9 @@
       + ''
 
         if [[ $mode == build ]]; then
-          echo "Build: $created to create, $changed to change, $unchanged unchanged."
+          echo "Build: $created to create, $changed to change, $deleted to delete, $unchanged unchanged."
         else
-          echo "Switch: $created created, $changed changed, $unchanged unchanged."
+          echo "Switch: $created created, $changed changed, $deleted deleted, $unchanged unchanged."
         fi
       '';
     };
