@@ -45,6 +45,25 @@ in
       description = "The endpoints that this request creates, with the fields that GitHub returns for each endpoint right after the creation. Build mode uses them to preview later requests.";
     };
 
+    liveFields = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            endpoint = mkOption {
+              type = types.str;
+              description = "The endpoint that returns the live value of the field.";
+            };
+            filter = mkOption {
+              type = types.str;
+              description = "The jq filter that extracts the live value from the response.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The body fields whose live value the endpoint of this request does not return. The comparison reads each of them from another endpoint.";
+    };
+
     onFailure = mkOption {
       type = types.nullOr (
         types.submodule {

@@ -53,16 +53,23 @@
         }
         trap run_cleanups EXIT
 
-        # The fetch function stores the response body in live. It returns 1 for HTTP 404 and stops the switch on any other failure.
+        # The fetch function stores the response body in live. It returns 1 for an absent status, HTTP 404 by default, and stops the switch on any other failure.
         fetch() {
-          local response status_line
+          local response status_line absent=''${2:-404}
           response=$(gh api --include "$1" 2>&1) || true
           status_line=''${response%%$'\r'*}
           if [[ $status_line =~ ^HTTP/[0-9.]+\ 2 ]]; then
-            live=''${response#*$'\r\n\r\n'}
+            # An HTTP 204 response has no body, and command substitution removes the final line break of its headers.
+            live=""
+            if [[ $response == *$'\r\n\r\n'* ]]; then
+              live=''${response#*$'\r\n\r\n'}
+            fi
+            if [[ -z $live ]]; then
+              live='{}'
+            fi
             return 0
           fi
-          if [[ $status_line =~ ^HTTP/[0-9.]+\ 404\  ]]; then
+          if [[ $status_line =~ ^HTTP/[0-9.]+\ ($absent)\  ]]; then
             live='{}'
             return 1
           fi
@@ -105,10 +112,24 @@
           return "$found"
         }
 
+        # The read_live_fields function replaces each body field in live with the value that another endpoint returns. An endpoint can answer HTTP 409 when the field does not apply, which counts as no value.
+        read_live_fields() {
+          local fields=$1 body=$2 field source filter base=$live value
+          while IFS=$'\t' read -r field source filter; do
+            if fetch "$source" '404|409'; then
+              value=$(jq --compact-output "$filter" <<<"$live")
+            else
+              value=null
+            fi
+            base=$(jq --null-input --compact-output --argjson base "$base" --arg field "$field" --argjson value "$value" '$base + {($field): $value}')
+          done < <(jq --raw-output --argjson body "$body" 'to_entries[] | .key as $key | select($body | has($key)) |"\(.key)\t\(.value.endpoint)\t\(.value.filter)"' <<<"$fields")
+          live=$base
+        }
+
         reconcile() {
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
-          local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9
-          local action changes="" resource state
+          local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9 live_fields=''${10}
+          local action changes="" resource state found=0
 
           if [[ -n $skip_if_exists ]]; then
             if observe "$skip_if_exists"; then action=unchanged; else action=create; fi
@@ -116,12 +137,19 @@
             action=create
           elif [[ $method == DELETE ]]; then
             if observe "$endpoint"; then action=delete; else action=unchanged; fi
-          elif observe "$endpoint"; then
-            changes=$(difference "$body")
-            if [[ -z $changes ]]; then action=unchanged; else action=change; fi
           else
+            observe "$endpoint" || found=1
+            if ((found == 0)) && [[ $live_fields != "{}" ]]; then
+              read_live_fields "$live_fields" "$body"
+            fi
             changes=$(difference "$body")
-            action=create
+            if ((found != 0)); then
+              action=create
+            elif [[ -z $changes ]]; then
+              action=unchanged
+            else
+              action=change
+            fi
           fi
 
           case $action in
@@ -190,6 +218,7 @@
           (if onFailure == null then "" else onFailure.endpoint)
           (if onFailure == null then "" else builtins.toJSON onFailure.body)
           (builtins.toJSON (request.creates or { }))
+          (builtins.toJSON (request.liveFields or { }))
         ]
       ) requests
       + ''

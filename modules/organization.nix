@@ -124,6 +124,11 @@ in
         method = "PUT";
         endpoint = "orgs/${name}/settings/immutable-releases";
         body = immutableReleasesBody;
+        # The settings endpoint does not return the selected repositories, so the comparison reads them from their own endpoint.
+        liveFields.selected_repository_ids = {
+          endpoint = "orgs/${name}/settings/immutable-releases/repositories?per_page=100";
+          filter = "[.repositories[].id]";
+        };
       };
     };
 }

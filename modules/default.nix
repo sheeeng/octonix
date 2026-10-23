@@ -51,17 +51,30 @@ in
       else
         map (
           entry:
-          lib.filterAttrs (option: value: value != null && !(option == "creates" && value == { })) {
-            inherit (entry)
-              name
-              method
-              endpoint
-              body
-              skipIfExists
-              onFailure
-              creates
-              ;
-          }
+          lib.filterAttrs
+            (
+              option: value:
+              value != null
+              && !(
+                lib.elem option [
+                  "creates"
+                  "liveFields"
+                ]
+                && value == { }
+              )
+            )
+            {
+              inherit (entry)
+                name
+                method
+                endpoint
+                body
+                skipIfExists
+                onFailure
+                creates
+                liveFields
+                ;
+            }
         ) sorted.result;
   };
 }
