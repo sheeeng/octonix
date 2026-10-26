@@ -94,9 +94,9 @@
           projected[$1]=$(jq --null-input --compact-output --argjson pending "''${pending:-null}" --argjson body "$2" '($pending // {}) + $body')
         }
 
-        # The observe function reads an endpoint like fetch, and then applies the recorded effects of earlier requests.
+        # The observe function reads an endpoint like fetch, reads the live fields of the body, and then applies the recorded effects of earlier requests, so projected values take precedence.
         observe() {
-          local endpoint=$1 found=0 pending
+          local endpoint=$1 fields=''${2-} body=''${3-} found=0 pending
           if [[ ''${presence[$endpoint]-} == absent ]]; then
             live='{}'
             return 1
@@ -105,6 +105,9 @@
           if [[ ''${presence[$endpoint]-} == present ]]; then
             found=0
           fi
+          if ((found == 0)) && [[ -n $fields && $fields != "{}" ]]; then
+            read_live_fields "$fields" "$body"
+          fi
           pending=''${projected[$endpoint]-}
           if [[ -n $pending ]]; then
             live=$(jq --null-input --compact-output --argjson live "$live" --argjson pending "$pending" '$live + $pending')
@@ -112,12 +115,13 @@
           return "$found"
         }
 
-        # The read_live_fields function replaces each body field in live with the value that another endpoint returns. An endpoint can answer HTTP 409 when the field does not apply, which counts as no value.
+        # The read_live_fields function replaces each body field in live with the value that another endpoint returns. The filter receives every page of the response as an array. An endpoint can answer HTTP 409 when the field does not apply, which counts as no value.
         read_live_fields() {
-          local fields=$1 body=$2 field source filter base=$live value
+          local fields=$1 body=$2 field source filter base=$live value pages
           while IFS=$'\t' read -r field source filter; do
             if fetch "$source" '404|409'; then
-              value=$(jq --compact-output "$filter" <<<"$live")
+              pages=$(gh api --paginate --slurp "$source")
+              value=$(jq --compact-output "$filter" <<<"$pages")
             else
               value=null
             fi
@@ -138,10 +142,7 @@
           elif [[ $method == DELETE ]]; then
             if observe "$endpoint"; then action=delete; else action=unchanged; fi
           else
-            observe "$endpoint" || found=1
-            if ((found == 0)) && [[ $live_fields != "{}" ]]; then
-              read_live_fields "$live_fields" "$body"
-            fi
+            observe "$endpoint" "$live_fields" "$body" || found=1
             changes=$(difference "$body")
             if ((found != 0)); then
               action=create

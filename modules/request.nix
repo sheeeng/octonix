@@ -55,7 +55,7 @@ in
             };
             filter = mkOption {
               type = types.str;
-              description = "The jq filter that extracts the live value from the response.";
+              description = "The jq filter that extracts the live value from the response. The filter receives every page of the response as an array.";
             };
           };
         }
