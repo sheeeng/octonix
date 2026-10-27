@@ -116,17 +116,21 @@
         }
 
         # The read_live_fields function replaces each body field in live with the value that another endpoint returns. The filter receives every page of the response as an array. An endpoint can answer HTTP 409 when the field does not apply, which counts as no value.
+        # The caller runs in a condition, which disables errexit, so each command stops the switch explicitly. The records use NUL delimiters, so a filter can span lines.
         read_live_fields() {
           local fields=$1 body=$2 field source filter base=$live value pages
-          while IFS=$'\t' read -r field source filter; do
+          while IFS= read -r -d "" field && IFS= read -r -d "" source && IFS= read -r -d "" filter; do
             if fetch "$source" '404|409'; then
-              pages=$(gh api --paginate --slurp "$source")
-              value=$(jq --compact-output "$filter" <<<"$pages")
+              pages=$(gh api --paginate --slurp "$source") || {
+                echo "octonix: cannot read every page of $source" >&2
+                exit 1
+              }
+              value=$(jq --compact-output "$filter" <<<"$pages") || exit 1
             else
               value=null
             fi
-            base=$(jq --null-input --compact-output --argjson base "$base" --arg field "$field" --argjson value "$value" '$base + {($field): $value}')
-          done < <(jq --raw-output --argjson body "$body" 'to_entries[] | .key as $key | select($body | has($key)) |"\(.key)\t\(.value.endpoint)\t\(.value.filter)"' <<<"$fields")
+            base=$(jq --null-input --compact-output --argjson base "$base" --arg field "$field" --argjson value "$value" '$base + {($field): $value}') || exit 1
+          done < <(jq --join-output --argjson body "$body" 'to_entries[] | .key as $key | select($body | has($key)) | "\(.key)\u0000\(.value.endpoint)\u0000\(.value.filter)\u0000"' <<<"$fields")
           live=$base
         }
 
