@@ -64,6 +64,37 @@ in
       description = "The body fields whose live value the endpoint of this request does not return. The comparison reads each of them from another endpoint.";
     };
 
+    lookup = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            endpoint = mkOption {
+              type = types.str;
+              description = "The endpoint that lists the existing resources.";
+            };
+            filter = mkOption {
+              type = types.str;
+              description = "The jq filter that returns the identifier of the resource, or null when the resource does not exist. The filter receives every page of the response as an array.";
+            };
+            createMethod = mkOption {
+              type = types.enum [
+                "POST"
+                "PUT"
+              ];
+              default = "POST";
+              description = "The HTTP method that creates the resource.";
+            };
+            createEndpoint = mkOption {
+              type = types.str;
+              description = "The endpoint that creates the resource.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "The search for a resource that GitHub identifies by a generated identifier. The switch script replaces `{id}` in `endpoint` with the identifier that it finds. When it finds no identifier, it sends the body to `createEndpoint` instead.";
+    };
+
     onFailure = mkOption {
       type = types.nullOr (
         types.submodule {

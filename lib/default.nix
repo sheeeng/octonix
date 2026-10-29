@@ -134,12 +134,34 @@
           live=$base
         }
 
+        # The resolve function stores in identifier the value that the filter returns for every page of the listing. It stores an empty value when the listing is absent or the filter returns null.
+        resolve() {
+          local source=$1 filter=$2 pages
+          identifier=""
+          if fetch "$source"; then
+            pages=$(gh api --paginate --slurp "$source")
+            identifier=$(jq --raw-output "($filter) // empty" <<<"$pages")
+          fi
+        }
+
         reconcile() {
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
           local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9 live_fields=''${10}
-          local action changes="" resource state found=0
+          local lookup_endpoint=''${11} lookup_filter=''${12} create_method=''${13} create_endpoint=''${14}
+          local action="" changes="" resource state found=0
 
-          if [[ -n $skip_if_exists ]]; then
+          if [[ -n $lookup_endpoint ]]; then
+            resolve "$lookup_endpoint" "$lookup_filter"
+            if [[ -n $identifier ]]; then
+              endpoint=''${endpoint//"{id}"/$identifier}
+            else
+              action=create method=$create_method endpoint=$create_endpoint
+            fi
+          fi
+
+          if [[ -n $action ]]; then
+            :
+          elif [[ -n $skip_if_exists ]]; then
             if observe "$skip_if_exists"; then action=unchanged; else action=create; fi
           elif [[ $method == POST ]]; then
             action=create
@@ -211,6 +233,7 @@
         request:
         let
           onFailure = request.onFailure or null;
+          lookup = request.lookup or null;
         in
         lib.escapeShellArgs [
           "reconcile"
@@ -224,6 +247,10 @@
           (if onFailure == null then "" else builtins.toJSON onFailure.body)
           (builtins.toJSON (request.creates or { }))
           (builtins.toJSON (request.liveFields or { }))
+          (if lookup == null then "" else lookup.endpoint)
+          (if lookup == null then "" else lookup.filter)
+          (if lookup == null then "" else lookup.createMethod)
+          (if lookup == null then "" else lookup.createEndpoint)
         ]
       ) requests
       + ''

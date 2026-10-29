@@ -57,6 +57,25 @@ let
         inherit value;
       }
     );
+
+  # GitHub identifies a ruleset by a generated identifier, so each request finds the ruleset by its unique name.
+  rulesetRequests = lib.mapAttrs' (
+    rulesetName: ruleset:
+    lib.nameValuePair "${slug}/rulesets/${rulesetName}" {
+      method = "PUT";
+      endpoint = "repos/${slug}/rulesets/{id}";
+      inherit (ruleset) body;
+      lookup = {
+        endpoint = "repos/${slug}/rulesets?includes_parents=false&per_page=100";
+        filter = "[.[][] | select(.name == ${builtins.toJSON rulesetName}) | .id] | first";
+        createEndpoint = "repos/${slug}/rulesets";
+      };
+      # A ruleset can block the first commit, so the rulesets wait for the default branch.
+      after = [ "${slug}/initialize" ];
+    }
+  ) config.rulesets;
+
+  managed = collections // rulesetRequests;
 in
 {
   options = {
@@ -144,6 +163,12 @@ in
       description = "The Actions variables by name. Octonix creates and updates these variables. It does not delete other variables.";
     };
 
+    rulesets = mkOption {
+      type = types.attrsOf (types.submodule ./ruleset.nix);
+      default = { };
+      description = "The repository rulesets, keyed by their unique names. Octonix does not delete rulesets that you do not declare.";
+    };
+
     requests = mkOption {
       type = types.attrsOf types.anything;
       internal = true;
@@ -223,10 +248,10 @@ in
       after = [ "${slug}/settings" ];
     };
   }
-  // collections
+  // managed
   // lib.optionalAttrs config.archived {
     "${slug}/archive" = archive // {
-      after = [ "${slug}/topics" ] ++ lib.attrNames collections;
+      after = [ "${slug}/topics" ] ++ lib.attrNames managed;
     };
   };
 }

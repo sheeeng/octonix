@@ -85,6 +85,29 @@ nix run --impure .#build
 nix run --impure .#switch
 ```
 
+Declare repository rulesets in
+`organizations.<name>.repositories.<name>.rulesets.<name>`. The attribute
+name is the ruleset name. GitHub gives each ruleset an identifier, so the
+switch script finds the ruleset by its name. It updates the ruleset when it
+exists and creates it when it does not. Octonix does not delete rulesets
+that you do not declare. Write `rules` in the form that the GitHub REST API
+accepts.
+
+```nix
+rulesets."Automatically Request Copilot Review" = {
+  conditions.refName.include = [ "~ALL" ];
+  rules = [
+    {
+      type = "copilot_code_review";
+      parameters = {
+        review_draft_pull_requests = true;
+        review_on_push = true;
+      };
+    }
+  ];
+};
+```
+
 ## Layout
 
 The `modules` directory holds the option declarations. The `lib` directory
