@@ -174,12 +174,41 @@
           done < <(jq --raw-output --argjson keep "$keep" '.[] | select(.key as $key | $keep | index($key) | not) | "\(.key)\t\(.id)"' <<<"$items")
         }
 
+        # The reconcile function receives one request as JSON. It reads each field with a NUL delimiter, so a filter can span lines.
         reconcile() {
-          local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
-          local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9 live_fields=''${10}
-          local lookup_endpoint=''${11} lookup_filter=''${12} create_method=''${13} create_endpoint=''${14}
-          local secret_repository=''${15} secret_name=''${16}
-          local prune_endpoint=''${17} prune_filter=''${18} prune_keep=''${19}
+          local name method endpoint body skip_if_exists failure_method failure_endpoint failure_body creates live_fields
+          local lookup_endpoint lookup_filter create_method create_endpoint secret_repository secret_name
+          local prune_endpoint prune_filter prune_keep
+          {
+            read -r -d "" name
+            read -r -d "" method
+            read -r -d "" endpoint
+            read -r -d "" body
+            read -r -d "" skip_if_exists
+            read -r -d "" failure_method
+            read -r -d "" failure_endpoint
+            read -r -d "" failure_body
+            read -r -d "" creates
+            read -r -d "" live_fields
+            read -r -d "" lookup_endpoint
+            read -r -d "" lookup_filter
+            read -r -d "" create_method
+            read -r -d "" create_endpoint
+            read -r -d "" secret_repository
+            read -r -d "" secret_name
+            read -r -d "" prune_endpoint
+            read -r -d "" prune_filter
+            read -r -d "" prune_keep
+          } < <(jq --join-output '
+            [
+              .name, .method, .endpoint, (.body // {} | tojson), (.skipIfExists // ""),
+              (.onFailure.method // ""), (.onFailure.endpoint // ""), (.onFailure.body // {} | tojson),
+              (.creates // {} | tojson), (.liveFields // {} | tojson),
+              (.lookup.endpoint // ""), (.lookup.filter // ""), (.lookup.createMethod // ""), (.lookup.createEndpoint // ""),
+              (.environmentSecret.repository // ""), (.environmentSecret.name // ""),
+              (.prune.endpoint // ""), (.prune.filter // ""), (.prune.keep // [] | tojson)
+            ][] | . + "\u0000"
+          ' <<<"$1")
 
           if [[ -n $prune_endpoint ]]; then
             prune_items "$name" "$endpoint" "$prune_endpoint" "$prune_filter" "$prune_keep"
@@ -277,34 +306,9 @@
 
       ''
       + lib.concatMapStringsSep "\n" (
-        request:
-        let
-          onFailure = request.onFailure or null;
-          lookup = request.lookup or null;
-          secret = request.environmentSecret or null;
-          prune = request.prune or null;
-        in
-        lib.escapeShellArgs [
+        request: lib.escapeShellArgs [
           "reconcile"
-          request.name
-          request.method
-          request.endpoint
-          (builtins.toJSON request.body)
-          (request.skipIfExists or "")
-          (if onFailure == null then "" else onFailure.method)
-          (if onFailure == null then "" else onFailure.endpoint)
-          (if onFailure == null then "" else builtins.toJSON onFailure.body)
-          (builtins.toJSON (request.creates or { }))
-          (builtins.toJSON (request.liveFields or { }))
-          (if lookup == null then "" else lookup.endpoint)
-          (if lookup == null then "" else lookup.filter)
-          (if lookup == null then "" else lookup.createMethod)
-          (if lookup == null then "" else lookup.createEndpoint)
-          (if secret == null then "" else secret.repository)
-          (if secret == null then "" else secret.name)
-          (if prune == null then "" else prune.endpoint)
-          (if prune == null then "" else prune.filter)
-          (if prune == null then "" else builtins.toJSON prune.keep)
+          (builtins.toJSON request)
         ]
       ) requests
       + ''
