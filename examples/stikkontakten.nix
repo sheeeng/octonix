@@ -23,6 +23,13 @@
               "nix"
               "octonix"
             ];
+            # A free organization can enforce rulesets only in public repositories.
+            rulesets = lib.optionalAttrs (visibility == "public") {
+              "Protect the default branch".rules = [
+                { type = "deletion"; }
+                { type = "non_fast_forward"; }
+              ];
+            };
           }
         )
         [

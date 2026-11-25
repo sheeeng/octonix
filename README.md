@@ -69,7 +69,67 @@ immutable releases policy in `organizations.<name>.immutableReleases`.
 Octonix sends only the settings that you declare, so other settings keep
 their live values.
 
-Declare repositories in `organizations.<name>.repositories.<name>`.
+Declare repositories in `organizations.<name>.repositories.<name>`. Each
+repository supports its settings, `topics`, `labels`, Actions `variables`,
+Actions `secrets`, `deployKeys`, `rulesets`, `webhooks`, `environments`,
+`collaborators`, `teamAccess`, `autolinks`, and `pages`. Declare teams in
+`organizations.<name>.teams`, with their members. Octonix creates and
+updates these resources. It deletes the ones that you omit only for the
+kinds that `prune` lists.
+GitHub sends an invitation to a collaborator who is not a member yet.
+Octonix does not manage webhook secrets.
+
+Declare each secret as a name in `secrets`. The switch script reads the
+value from the environment variable with the same name, and it sets only a
+secret that does not exist. GitHub never returns a secret value, so the
+script cannot detect a changed value. The value never enters the Nix store.
+GitHub cannot edit a deploy key, so delete a changed key by hand before the
+next switch.
+
+Set `prune` on a repository to delete undeclared items. It lists kinds:
+`autolinks`, `collaborators`, `deployKeys`, `environments`, `labels`,
+`rulesets`, `secrets`, `teamAccess`, `variables`, and `webhooks`. A build
+prints each deletion with a minus sign, so you can review it before the
+switch. Pruning `labels` deletes the default GitHub labels. Pruning
+`environments` deletes the `github-pages` environment. Octonix never
+prunes repositories, teams, team members, or organization settings.
+
+```toml
+prune = ["labels", "variables"]
+```
+
+## Use TOML Instead of Nix
+
+Write the same options in a TOML file, and set `OCTONIX_CONFIG` to its
+absolute path. The `--impure` option lets Nix read the variable.
+
+```bash
+export OCTONIX_CONFIG="$PWD/examples/stikkontakten.toml"
+nix run --impure .#build
+nix run --impure .#switch
+```
+
+Declare repository rulesets in
+`organizations.<name>.repositories.<name>.rulesets.<name>`. The attribute
+name is the ruleset name. GitHub gives each ruleset an identifier, so the
+switch script finds the ruleset by its name. It updates the ruleset when it
+exists and creates it when it does not. Write `rules` in the form that the GitHub REST API
+accepts.
+
+```nix
+rulesets."Automatically Request Copilot Review" = {
+  conditions.refName.include = [ "~ALL" ];
+  rules = [
+    {
+      type = "copilot_code_review";
+      parameters = {
+        review_draft_pull_requests = true;
+        review_on_push = true;
+      };
+    }
+  ];
+};
+```
 
 ## Layout
 

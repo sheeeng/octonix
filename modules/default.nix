@@ -70,6 +70,9 @@ in
                 endpoint
                 body
                 skipIfExists
+                lookup
+                environmentSecret
+                prune
                 onFailure
                 creates
                 liveFields

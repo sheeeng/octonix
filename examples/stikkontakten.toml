@@ -1,0 +1,45 @@
+# This example declares the stikkontakten prototype organization without Nix syntax.
+# Option names follow the module options, so `hasIssues` replaces `has_issues`.
+
+[organizations.stikkontakten.repositories.public-example]
+description = "Demonstrate how Octonix manages a public GitHub repository."
+visibility = "public"
+topics = ["nix", "octonix"]
+secrets = ["OCTONIX_EXAMPLE_SECRET"]
+# Delete every undeclared item of these kinds. Collaborators stay out of the list on purpose.
+prune = ["autolinks", "deployKeys", "labels", "rulesets", "secrets", "teamAccess", "variables", "webhooks"]
+
+[organizations.stikkontakten.repositories.public-example.labels.triage]
+color = "fbca04"
+description = "Needs triage."
+
+[organizations.stikkontakten.repositories.public-example.variables]
+GREETING = "hello"
+
+[organizations.stikkontakten.repositories.public-example.deployKeys.example]
+key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAahxV+m7QX33AKhuuowvkw5txFYZwJ+VmHIxKEl8FxD"
+
+[organizations.stikkontakten.repositories.public-example.rulesets.protect-main]
+enforcement = "active"
+rules = [{ type = "deletion" }, { type = "non_fast_forward" }]
+
+[organizations.stikkontakten.teams.maintainers]
+description = "Maintain the stikkontakten repositories."
+
+[organizations.stikkontakten.teams.maintainers.members]
+sheeeng = "maintainer"
+
+[organizations.stikkontakten.repositories.public-example.teamAccess]
+maintainers = "maintain"
+
+[organizations.stikkontakten.repositories.public-example.webhooks."https://example.com/octonix"]
+events = ["push", "pull_request"]
+
+[organizations.stikkontakten.repositories.public-example.environments.production]
+waitTimer = 5
+
+[organizations.stikkontakten.repositories.public-example.pages]
+branch = "main"
+
+[organizations.stikkontakten.repositories.public-example.autolinks.OCTONIX-]
+urlTemplate = "https://example.com/tickets/<num>"

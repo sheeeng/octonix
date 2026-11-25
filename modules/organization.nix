@@ -102,6 +102,40 @@ in
       };
     };
 
+    teams = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            description = mkOption {
+              type = types.str;
+              default = "";
+              description = "The team description.";
+            };
+            privacy = mkOption {
+              type = types.enum [
+                "closed"
+                "secret"
+              ];
+              default = "closed";
+              description = "Whether all organization members can see the team, or only its members.";
+            };
+            members = mkOption {
+              type = types.attrsOf (
+                types.enum [
+                  "maintainer"
+                  "member"
+                ]
+              );
+              default = { };
+              description = "The team members by GitHub user name, with their team role. Octonix does not remove members that you do not declare.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The teams by slug. The attribute name is the team slug and the team name, so use lowercase words with hyphens. Octonix does not delete teams that you do not declare.";
+    };
+
     requests = mkOption {
       type = types.attrsOf types.anything;
       internal = true;
@@ -112,6 +146,43 @@ in
 
   config.requests =
     lib.mergeAttrsList (lib.mapAttrsToList (_: repository: repository.requests) config.repositories)
+    // lib.concatMapAttrs (
+      team: declaration:
+      let
+        teamEndpoint = "orgs/${name}/teams/${team}";
+        body = {
+          inherit (declaration) description privacy;
+        };
+      in
+      {
+        "${name}/teams/${team}/create" = {
+          method = "POST";
+          endpoint = "orgs/${name}/teams";
+          body = body // {
+            name = team;
+          };
+          skipIfExists = teamEndpoint;
+          creates.${teamEndpoint} = body // {
+            name = team;
+          };
+        };
+        "${name}/teams/${team}/settings" = {
+          method = "PATCH";
+          endpoint = teamEndpoint;
+          inherit body;
+          after = [ "${name}/teams/${team}/create" ];
+        };
+      }
+      // lib.mapAttrs' (
+        user: role:
+        lib.nameValuePair "${name}/teams/${team}/members/${user}" {
+          method = "PUT";
+          endpoint = "${teamEndpoint}/memberships/${user}";
+          body = { inherit role; };
+          after = [ "${name}/teams/${team}/settings" ];
+        }
+      ) declaration.members
+    ) config.teams
     // lib.optionalAttrs (settingsBody != { }) {
       "${name}/settings" = {
         method = "PATCH";

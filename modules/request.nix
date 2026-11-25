@@ -2,6 +2,23 @@
 { name, lib, ... }:
 let
   inherit (lib) mkOption types;
+
+  # The three reads of a listing share these options. Each read uses the result of the filter differently.
+  listing =
+    extra:
+    types.submodule {
+      options = {
+        endpoint = mkOption {
+          type = types.str;
+          description = "The endpoint that lists the items.";
+        };
+        filter = mkOption {
+          type = types.str;
+          description = "The jq filter that turns every page of the listing into the result that the option describes.";
+        };
+      }
+      // extra;
+    };
 in
 {
   options = {
@@ -46,22 +63,58 @@ in
     };
 
     liveFields = mkOption {
-      type = types.attrsOf (
+      type = types.attrsOf (listing { });
+      default = { };
+      description = "The body fields whose live value the endpoint of this request does not return. The comparison reads each of them from a listing, and the filter returns the live value.";
+    };
+
+    environmentSecret = mkOption {
+      type = types.nullOr (
         types.submodule {
           options = {
-            endpoint = mkOption {
+            repository = mkOption {
               type = types.str;
-              description = "The endpoint that returns the live value of the field.";
+              description = "The repository that owns the secret, in the form `owner/name`.";
             };
-            filter = mkOption {
+            name = mkOption {
               type = types.str;
-              description = "The jq filter that extracts the live value from the response. The filter receives every page of the response as an array.";
+              description = "The secret name, which is also the name of the environment variable that holds the value.";
             };
           };
         }
       );
-      default = { };
-      description = "The body fields whose live value the endpoint of this request does not return. The comparison reads each of them from another endpoint.";
+      default = null;
+      description = "A secret that the switch script sets with `gh secret set`, which encrypts the value. The script reads the value from the environment variable and sets only a missing secret, because GitHub never returns a secret value. Set `skipIfExists` to the endpoint of the secret.";
+    };
+
+    prune = mkOption {
+      type = types.nullOr (listing {
+        keep = mkOption {
+          type = types.listOf types.str;
+          description = "The keys of the declared items. The switch script deletes each item with another key.";
+        };
+      });
+      default = null;
+      description = "The deletion of undeclared items. The filter returns an array of records with a `key` and an `id`. The `endpoint` of this request is the delete endpoint, and `{id}` stands for the identifier of each item. The `method` must be `DELETE`.";
+    };
+
+    lookup = mkOption {
+      type = types.nullOr (listing {
+        createMethod = mkOption {
+          type = types.enum [
+            "POST"
+            "PUT"
+          ];
+          default = "POST";
+          description = "The HTTP method that creates the resource.";
+        };
+        createEndpoint = mkOption {
+          type = types.str;
+          description = "The endpoint that creates the resource.";
+        };
+      });
+      default = null;
+      description = "The search for a resource that GitHub identifies by a generated identifier. The filter returns the identifier, or null when the resource does not exist. The switch script replaces `{id}` in `endpoint` with the identifier that it finds. When it finds no identifier, it sends the body to `createEndpoint` instead.";
     };
 
     onFailure = mkOption {
