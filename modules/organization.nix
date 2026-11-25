@@ -49,12 +49,21 @@ in
     repositories = mkOption {
       type = types.attrsOf (
         types.submoduleWith {
-          modules = [ ./repository.nix ];
+          modules = [
+            ./repository.nix
+            { config = lib.mapAttrs (_: lib.mkDefault) config.repositoryDefaults; }
+          ];
           specialArgs.organization = name;
         }
       );
       default = { };
       description = "The repositories that belong to this organization.";
+    };
+
+    repositoryDefaults = mkOption {
+      type = types.attrs;
+      default = { };
+      description = "The repository options that every repository of this organization uses unless it sets the option itself. A repository that sets a collection option, such as `labels`, replaces the whole default value of that option.";
     };
 
     # Octonix sends only the settings that are not null, so undeclared settings keep their live values.
