@@ -83,6 +83,29 @@ in
       description = "A secret that the switch script sets with `gh secret set`, which encrypts the value. The script reads the value from the environment variable and sets only a missing secret, because GitHub never returns a secret value. Set `skipIfExists` to the endpoint of the secret.";
     };
 
+    prune = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            endpoint = mkOption {
+              type = types.str;
+              description = "The endpoint that lists the existing items.";
+            };
+            filter = mkOption {
+              type = types.str;
+              description = "The jq filter that turns every page of the listing into an array of records with a `key` and an `id`.";
+            };
+            keep = mkOption {
+              type = types.listOf types.str;
+              description = "The keys of the declared items. The switch script deletes each item with another key.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "The deletion of undeclared items. The `endpoint` of this request is the delete endpoint, and `{id}` stands for the identifier of each item. The `method` must be `DELETE`.";
+    };
+
     lookup = mkOption {
       type = types.nullOr (
         types.submodule {

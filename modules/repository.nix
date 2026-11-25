@@ -249,6 +249,82 @@ let
     }
   );
 
+  # Each kind lists the live items as records with a `key` (the declared name) and an `id` (the part of the delete endpoint).
+  pruneKinds = {
+    labels = {
+      list = "labels?per_page=100";
+      filter = "[.[][] | {key: .name, id: (.name | @uri)}]";
+      keep = lib.attrNames config.labels;
+    };
+    variables = {
+      list = "actions/variables?per_page=30";
+      filter = "[.[].variables[] | {key: .name, id: .name}]";
+      keep = lib.attrNames config.variables;
+    };
+    secrets = {
+      list = "actions/secrets?per_page=100";
+      filter = "[.[].secrets[] | {key: .name, id: .name}]";
+      keep = config.secrets;
+    };
+    deployKeys = {
+      list = "keys?per_page=100";
+      filter = "[.[][] | {key: .title, id: .id}]";
+      keep = lib.attrNames config.deployKeys;
+    };
+    rulesets = {
+      list = "rulesets?includes_parents=false&per_page=100";
+      filter = "[.[][] | {key: .name, id: .id}]";
+      keep = lib.attrNames config.rulesets;
+    };
+    webhooks = {
+      list = "hooks?per_page=100";
+      filter = "[.[][] | {key: .config.url, id: .id}]";
+      keep = lib.attrNames config.webhooks;
+    };
+    autolinks = {
+      list = "autolinks?per_page=100";
+      filter = "[.[][] | {key: .key_prefix, id: .id}]";
+      keep = lib.attrNames config.autolinks;
+    };
+    environments = {
+      list = "environments?per_page=100";
+      filter = "[.[].environments[] | {key: .name, id: (.name | @uri)}]";
+      keep = lib.attrNames config.environments;
+    };
+    collaborators = {
+      list = "collaborators?affiliation=direct&per_page=100";
+      filter = "[.[][] | {key: .login, id: .login}]";
+      keep = lib.attrNames config.collaborators;
+    };
+    teamAccess = {
+      list = "teams?per_page=100";
+      filter = "[.[][] | {key: .slug, id: .slug}]";
+      keep = lib.attrNames config.teamAccess;
+    };
+  };
+
+  pruneRequests = lib.listToAttrs (
+    map (
+      kind:
+      let
+        spec = pruneKinds.${kind};
+      in
+      lib.nameValuePair "${slug}/prune/${kind}" {
+        method = "DELETE";
+        endpoint =
+          if kind == "teamAccess" then
+            "orgs/${organization}/teams/{id}/repos/${slug}"
+          else
+            "repos/${slug}/${lib.head (lib.splitString "?" spec.list)}/{id}";
+        prune = {
+          endpoint = "repos/${slug}/${spec.list}";
+          inherit (spec) filter keep;
+        };
+        after = afterUnarchive;
+      }
+    ) config.prune
+  );
+
   managed =
     pagesRequests
     // autolinkRequests
@@ -260,7 +336,8 @@ let
     // webhookRequests
     // environmentRequests
     // collaboratorRequests
-    // teamAccessRequests;
+    // teamAccessRequests
+    // pruneRequests;
 in
 {
   options = {
@@ -339,13 +416,13 @@ in
         }
       );
       default = { };
-      description = "The labels by name. Octonix creates and updates these labels. It does not delete other labels.";
+      description = "The labels by name. Octonix creates and updates these labels. It deletes other labels only when `prune` lists labels.";
     };
 
     variables = mkOption {
       type = types.attrsOf types.str;
       default = { };
-      description = "The Actions variables by name. Octonix creates and updates these variables. It does not delete other variables.";
+      description = "The Actions variables by name. Octonix creates and updates these variables. It deletes other variables only when `prune` lists variables.";
     };
 
     deployKeys = mkOption {
@@ -365,7 +442,7 @@ in
         }
       );
       default = { };
-      description = "The deploy keys, keyed by their unique titles. GitHub cannot edit a deploy key, so delete a changed key by hand before the next switch. Octonix does not delete deploy keys that you do not declare.";
+      description = "The deploy keys, keyed by their unique titles. GitHub cannot edit a deploy key, so delete a changed key by hand before the next switch. Octonix deletes undeclared deploy keys only when `prune` lists them.";
     };
 
     secrets = mkOption {
@@ -400,7 +477,7 @@ in
         }
       );
       default = { };
-      description = "The webhooks, keyed by their unique payload addresses. Octonix does not manage webhook secrets, and it does not delete webhooks that you do not declare.";
+      description = "The webhooks, keyed by their unique payload addresses. Octonix does not manage webhook secrets, and it deletes undeclared webhooks only when `prune` lists them.";
     };
 
     environments = mkOption {
@@ -434,7 +511,7 @@ in
         }
       );
       default = { };
-      description = "The deployment environments by name. Octonix does not delete environments that you do not declare.";
+      description = "The deployment environments by name. Octonix deletes undeclared environments only when `prune` lists them.";
     };
 
     collaborators = mkOption {
@@ -466,7 +543,7 @@ in
         }
       );
       default = { };
-      description = "The autolinks, keyed by their unique reference prefixes. GitHub cannot edit an autolink, so delete a changed autolink by hand before the next switch. Octonix does not delete autolinks that you do not declare.";
+      description = "The autolinks, keyed by their unique reference prefixes. GitHub cannot edit an autolink, so delete a changed autolink by hand before the next switch. Octonix deletes undeclared autolinks only when `prune` lists them.";
     };
 
     pages = mkOption {
@@ -496,7 +573,13 @@ in
     rulesets = mkOption {
       type = types.attrsOf (types.submodule ./ruleset.nix);
       default = { };
-      description = "The repository rulesets, keyed by their unique names. Octonix does not delete rulesets that you do not declare.";
+      description = "The repository rulesets, keyed by their unique names. Octonix deletes undeclared rulesets only when `prune` lists them.";
+    };
+
+    prune = mkOption {
+      type = types.listOf (types.enum (lib.attrNames pruneKinds));
+      default = [ ];
+      description = "The kinds of resource where Octonix deletes every item that you do not declare. A build lists each deletion before the switch makes it. Pruning `labels` also deletes the default GitHub labels. Pruning `environments` also deletes the `github-pages` environment that GitHub Pages creates.";
     };
 
     requests = mkOption {

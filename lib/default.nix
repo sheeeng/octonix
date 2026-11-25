@@ -144,11 +144,38 @@
           fi
         }
 
+        # The prune_items function deletes each live item that the configuration does not declare. The filter turns every page of the listing into an array of key and id records. The deleted item shows as a removal in build mode too, so a review comes before the switch.
+        prune_items() {
+          local name=$1 delete_endpoint=$2 list=$3 filter=$4 keep=$5 pages items key id
+          if ! fetch "$list"; then
+            return
+          fi
+          pages=$(gh api --paginate --slurp "$list") || {
+            echo "octonix: cannot read every page of $list" >&2
+            exit 1
+          }
+          items=$(jq --compact-output "$filter" <<<"$pages") || exit 1
+          # shellcheck disable=SC2016
+          while IFS=$'\t' read -r key id; do
+            echo "''${red}- $name/$key''${reset}"
+            deleted=$((deleted + 1))
+            if [[ $mode == switch ]]; then
+              gh api --method DELETE --silent "''${delete_endpoint//"{id}"/$id}"
+            fi
+          done < <(jq --raw-output --argjson keep "$keep" '.[] | select(.key as $key | $keep | index($key) | not) | "\(.key)\t\(.id)"' <<<"$items")
+        }
+
         reconcile() {
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
           local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9 live_fields=''${10}
           local lookup_endpoint=''${11} lookup_filter=''${12} create_method=''${13} create_endpoint=''${14}
           local secret_repository=''${15} secret_name=''${16}
+          local prune_endpoint=''${17} prune_filter=''${18} prune_keep=''${19}
+
+          if [[ -n $prune_endpoint ]]; then
+            prune_items "$name" "$endpoint" "$prune_endpoint" "$prune_filter" "$prune_keep"
+            return
+          fi
           local action="" changes="" resource state found=0
 
           if [[ -n $lookup_endpoint ]]; then
@@ -244,6 +271,7 @@
           onFailure = request.onFailure or null;
           lookup = request.lookup or null;
           secret = request.environmentSecret or null;
+          prune = request.prune or null;
         in
         lib.escapeShellArgs [
           "reconcile"
@@ -263,6 +291,9 @@
           (if lookup == null then "" else lookup.createEndpoint)
           (if secret == null then "" else secret.repository)
           (if secret == null then "" else secret.name)
+          (if prune == null then "" else prune.endpoint)
+          (if prune == null then "" else prune.filter)
+          (if prune == null then "" else builtins.toJSON prune.keep)
         ]
       ) requests
       + ''
