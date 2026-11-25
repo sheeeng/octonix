@@ -52,6 +52,19 @@
       "$schema" = "http://json-schema.org/draft-07/schema#";
     };
 
+  # The import script prints the TOML configuration of a live organization.
+  mkImport =
+    pkgs:
+    pkgs.writeShellApplication {
+      name = "octonix-import";
+      runtimeInputs = [
+        pkgs.gh
+        pkgs.jq
+        pkgs.remarshal
+      ];
+      text = builtins.readFile ../scripts/import.sh;
+    };
+
   mkSwitch =
     pkgs: requests:
     pkgs.writeShellApplication {
@@ -124,10 +137,10 @@
           exit 1
         }
 
-        # The difference function prints each body field whose live value differs, and it ignores the order of arrays.
+        # The difference function prints each body field whose live value differs. It ignores the order of arrays, and it treats null and an empty string alike, because GitHub returns null for an empty description.
         difference() {
           jq --null-input --raw-output --argjson live "$live" --argjson desired "$1" '
-            def normalize: if type == "array" then sort else . end;
+            def normalize: if type == "array" then sort elif . == null then "" else . end;
             $desired
             | to_entries[]
             | select((.value | normalize) != ($live[.key] | normalize))
