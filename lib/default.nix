@@ -36,7 +36,7 @@
 
         created=0 changed=0 deleted=0 unchanged=0
         cleanups=()
-        declare -A projected=() presence=()
+        declare -A projected=() presence=() listings=()
 
         run_cleanups() {
           local status=$? index
@@ -115,16 +115,29 @@
           return "$found"
         }
 
+        # The pages_of function stores in pages every page of a listing as an array. It reads each listing once per run, and a write clears the cache. It returns 1 for an absent status, HTTP 404 by default, and stops the switch on any other failure.
+        pages_of() {
+          local source=$1 absent=''${2:-404} output
+          if [[ -z ''${listings[$source]-} ]]; then
+            if output=$(gh api --paginate --slurp "$source" 2>&1); then
+              listings[$source]=$output
+            elif [[ $output =~ HTTP\ ($absent) ]]; then
+              listings[$source]=absent
+            else
+              printf 'octonix: cannot read every page of %s\n%s\n' "$source" "$output" >&2
+              exit 1
+            fi
+          fi
+          pages=''${listings[$source]}
+          [[ $pages != absent ]]
+        }
+
         # The read_live_fields function replaces each body field in live with the value that another endpoint returns. The filter receives every page of the response as an array. An endpoint can answer HTTP 409 when the field does not apply, which counts as no value.
         # The caller runs in a condition, which disables errexit, so each command stops the switch explicitly. The records use NUL delimiters, so a filter can span lines.
         read_live_fields() {
           local fields=$1 body=$2 field source filter base=$live value pages
           while IFS= read -r -d "" field && IFS= read -r -d "" source && IFS= read -r -d "" filter; do
-            if fetch "$source" '404|409'; then
-              pages=$(gh api --paginate --slurp "$source") || {
-                echo "octonix: cannot read every page of $source" >&2
-                exit 1
-              }
+            if pages_of "$source" '404|409'; then
               value=$(jq --compact-output "$filter" <<<"$pages") || exit 1
             else
               value=null
@@ -138,8 +151,7 @@
         resolve() {
           local source=$1 filter=$2 pages
           identifier=""
-          if fetch "$source"; then
-            pages=$(gh api --paginate --slurp "$source")
+          if pages_of "$source"; then
             identifier=$(jq --raw-output "($filter) // empty" <<<"$pages")
           fi
         }
@@ -147,13 +159,9 @@
         # The prune_items function deletes each live item that the configuration does not declare. The filter turns every page of the listing into an array of key and id records. The deleted item shows as a removal in build mode too, so a review comes before the switch.
         prune_items() {
           local name=$1 delete_endpoint=$2 list=$3 filter=$4 keep=$5 pages items key id
-          if ! fetch "$list"; then
+          if ! pages_of "$list"; then
             return
           fi
-          pages=$(gh api --paginate --slurp "$list") || {
-            echo "octonix: cannot read every page of $list" >&2
-            exit 1
-          }
           items=$(jq --compact-output "$filter" <<<"$pages") || exit 1
           # shellcheck disable=SC2016
           while IFS=$'\t' read -r key id; do
@@ -161,6 +169,7 @@
             deleted=$((deleted + 1))
             if [[ $mode == switch ]]; then
               gh api --method DELETE --silent "''${delete_endpoint//"{id}"/$id}"
+              listings=()
             fi
           done < <(jq --raw-output --argjson keep "$keep" '.[] | select(.key as $key | $keep | index($key) | not) | "\(.key)\t\(.id)"' <<<"$items")
         }
@@ -255,8 +264,10 @@
 
           if [[ $action != unchanged && -n $secret_name ]]; then
             gh secret set "$secret_name" --repo "$secret_repository" --body "''${!secret_name}"
+            listings=()
           elif [[ $action != unchanged ]]; then
             printf '%s' "$body" | gh api --method "$method" --input - --silent "$endpoint"
+            listings=()
           fi
           # The cleanup also covers a request that was already satisfied, because a later failure can still leave the wrong state.
           if [[ -n $failure_method ]]; then
