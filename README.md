@@ -72,7 +72,7 @@ their live values.
 Declare repositories in `organizations.<name>.repositories.<name>`. Each
 repository supports its settings, `topics`, `labels`, Actions `variables`,
 Actions `secrets`, `deployKeys`, `rulesets`, `webhooks`, `environments`,
-`collaborators`, and `teamAccess`. Declare teams in
+`collaborators`, `teamAccess`, `autolinks`, and `pages`. Declare teams in
 `organizations.<name>.teams`, with their members. Octonix creates and
 updates these resources, and it does not delete the ones that you omit.
 GitHub sends an invitation to a collaborator who is not a member yet.

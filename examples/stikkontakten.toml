@@ -35,3 +35,9 @@ events = ["push", "pull_request"]
 
 [organizations.stikkontakten.repositories.public-example.environments.production]
 waitTimer = 5
+
+[organizations.stikkontakten.repositories.public-example.pages]
+branch = "main"
+
+[organizations.stikkontakten.repositories.public-example.autolinks.OCTONIX-]
+urlTemplate = "https://example.com/tickets/<num>"

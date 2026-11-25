@@ -204,7 +204,55 @@ let
     }
   ) config.teamAccess;
 
+  # GitHub identifies an autolink by a generated identifier, so each request finds the autolink by its unique prefix. GitHub cannot edit an autolink, so a changed autolink stops the switch.
+  autolinkRequests = lib.mapAttrs' (
+    keyPrefix: autolink:
+    lib.nameValuePair "${slug}/autolinks/${keyPrefix}" {
+      method = "PATCH";
+      endpoint = "repos/${slug}/autolinks/{id}";
+      body = {
+        key_prefix = keyPrefix;
+        url_template = autolink.urlTemplate;
+        is_alphanumeric = autolink.isAlphanumeric;
+      };
+      lookup = {
+        endpoint = "repos/${slug}/autolinks?per_page=100";
+        filter = "[.[][] | select(.key_prefix == ${builtins.toJSON keyPrefix}) | .id] | first";
+        createEndpoint = "repos/${slug}/autolinks";
+      };
+      after = afterUnarchive;
+    }
+  ) config.autolinks;
+
+  # GitHub Pages needs the source branch, so the requests wait for the first commit.
+  pagesRequests = lib.optionalAttrs (config.pages != null) (
+    let
+      body.source = {
+        inherit (config.pages) branch path;
+      };
+    in
+    {
+      "${slug}/pages/create" = {
+        method = "POST";
+        endpoint = "repos/${slug}/pages";
+        inherit body;
+        skipIfExists = "repos/${slug}/pages";
+        creates."repos/${slug}/pages" = body;
+        after = [ "${slug}/initialize" ];
+      };
+      "${slug}/pages/settings" = {
+        method = "PUT";
+        endpoint = "repos/${slug}/pages";
+        inherit body;
+        after = [ "${slug}/pages/create" ];
+      };
+    }
+  );
+
   managed =
+    pagesRequests
+    // autolinkRequests
+    //
     collections
     // rulesetRequests
     // deployKeyRequests
@@ -399,6 +447,50 @@ in
       type = types.attrsOf permission;
       default = { };
       description = "The organization teams by slug, with their repository permission. Declare the team in `teams` of the organization.";
+    };
+
+    autolinks = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            urlTemplate = mkOption {
+              type = types.str;
+              description = "The link target, which contains `<num>` for the reference number.";
+            };
+            isAlphanumeric = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether the reference accepts letters as well as digits.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The autolinks, keyed by their unique reference prefixes. GitHub cannot edit an autolink, so delete a changed autolink by hand before the next switch. Octonix does not delete autolinks that you do not declare.";
+    };
+
+    pages = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            branch = mkOption {
+              type = types.str;
+              default = "main";
+              description = "The branch that GitHub publishes.";
+            };
+            path = mkOption {
+              type = types.enum [
+                "/"
+                "/docs"
+              ];
+              default = "/";
+              description = "The directory of the branch that GitHub publishes.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "The GitHub Pages site that publishes a branch. A null value leaves the site alone. A free organization can publish only public repositories.";
     };
 
     rulesets = mkOption {
