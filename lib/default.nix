@@ -16,11 +16,13 @@
         pkgs.jq
       ];
       text = ''
+        check=0
         case "$*" in
           "") mode=switch ;;
           --build) mode=build ;;
+          "--build --check") mode=build check=1 ;;
           *)
-            echo "usage: octonix-switch [--build]" >&2
+            echo "usage: octonix-switch [--build [--check]]" >&2
             exit 2
             ;;
         esac
@@ -316,6 +318,10 @@
 
         if [[ $mode == build ]]; then
           echo "Build: $created to create, $changed to change, $deleted to delete, $unchanged unchanged."
+          # With --check, pending changes exit with status 3, so a CI job can report drift.
+          if ((check == 1 && created + changed + deleted > 0)); then
+            exit 3
+          fi
         else
           echo "Switch: $created created, $changed changed, $deleted deleted, $unchanged unchanged."
         fi
