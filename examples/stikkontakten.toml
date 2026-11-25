@@ -37,6 +37,10 @@ events = ["push", "pull_request"]
 
 [organizations.stikkontakten.repositories.public-example.environments.production]
 waitTimer = 5
+secrets = ["OCTONIX_EXAMPLE_SECRET"]
+
+[organizations.stikkontakten.repositories.public-example.environments.production.variables]
+REGION = "eu-north-1"
 
 [organizations.stikkontakten.repositories.public-example.pages]
 branch = "main"

@@ -83,6 +83,8 @@ Declare each secret as a name in `secrets`. The switch script reads the
 value from the environment variable with the same name, and it sets only a
 secret that does not exist. GitHub never returns a secret value, so the
 script cannot detect a changed value. The value never enters the Nix store.
+An environment can declare its own `secrets` and `variables` in the same
+way. Prune does not delete them.
 GitHub cannot edit a deploy key, so delete a changed key by hand before the
 next switch.
 

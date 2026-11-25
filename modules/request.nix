@@ -80,6 +80,11 @@ in
               type = types.str;
               description = "The secret name, which is also the name of the environment variable that holds the value.";
             };
+            environment = mkOption {
+              type = types.str;
+              default = "";
+              description = "The deployment environment that owns the secret. An empty value means a repository secret.";
+            };
           };
         }
       );
