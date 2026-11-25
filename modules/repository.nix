@@ -65,6 +65,82 @@ let
       }
     );
 
+  # Each kind has one listing. The lookups, the permission reads, and the prune requests all read it. The `items` filter selects the records of every page, the `key` filter gives the declared name, and the `id` filter gives the part of the item endpoint.
+  listings =
+    lib.mapAttrs
+      (
+        _: listing:
+        {
+          items = ".[][]";
+          id = ".id";
+        }
+        // listing
+      )
+      {
+        autolinks = {
+          list = "autolinks?per_page=100";
+          key = ".key_prefix";
+        };
+        collaborators = {
+          list = "collaborators?affiliation=direct&per_page=100";
+          key = ".login";
+          id = ".login";
+        };
+        deployKeys = {
+          list = "keys?per_page=100";
+          key = ".title";
+        };
+        environments = {
+          list = "environments?per_page=100";
+          items = ".[].environments[]";
+          key = ".name";
+          id = "(.name | @uri)";
+        };
+        labels = {
+          list = "labels?per_page=100";
+          key = ".name";
+          id = "(.name | @uri)";
+        };
+        rulesets = {
+          list = "rulesets?includes_parents=false&per_page=100";
+          key = ".name";
+        };
+        secrets = {
+          list = "actions/secrets?per_page=100";
+          items = ".[].secrets[]";
+          key = ".name";
+          id = ".name";
+        };
+        teamAccess = {
+          list = "teams?per_page=100";
+          key = ".slug";
+          id = ".slug";
+        };
+        variables = {
+          list = "actions/variables?per_page=30";
+          items = ".[].variables[]";
+          key = ".name";
+          id = ".name";
+        };
+        webhooks = {
+          list = "hooks?per_page=100";
+          key = ".config.url";
+        };
+      };
+
+  listingPath = kind: "repos/${slug}/${lib.head (lib.splitString "?" listings.${kind}.list)}";
+
+  lookupFor =
+    kind: itemName:
+    let
+      listing = listings.${kind};
+    in
+    {
+      endpoint = "repos/${slug}/${listing.list}";
+      filter = "[${listing.items} | select(${listing.key} == ${builtins.toJSON itemName}) | ${listing.id}] | first";
+      createEndpoint = listingPath kind;
+    };
+
   # GitHub identifies a ruleset by a generated identifier, so each request finds the ruleset by its unique name.
   rulesetRequests = lib.mapAttrs' (
     rulesetName: ruleset:
@@ -72,11 +148,7 @@ let
       method = "PUT";
       endpoint = "repos/${slug}/rulesets/{id}";
       inherit (ruleset) body;
-      lookup = {
-        endpoint = "repos/${slug}/rulesets?includes_parents=false&per_page=100";
-        filter = "[.[][] | select(.name == ${builtins.toJSON rulesetName}) | .id] | first";
-        createEndpoint = "repos/${slug}/rulesets";
-      };
+      lookup = lookupFor "rulesets" rulesetName;
       # A ruleset can block the first commit, so the rulesets wait for the default branch.
       after = [ "${slug}/initialize" ];
     }
@@ -93,11 +165,7 @@ let
         inherit (deployKey) key;
         read_only = deployKey.readOnly;
       };
-      lookup = {
-        endpoint = "repos/${slug}/keys?per_page=100";
-        filter = "[.[][] | select(.title == ${builtins.toJSON title}) | .id] | first";
-        createEndpoint = "repos/${slug}/keys";
-      };
+      lookup = lookupFor "deployKeys" title;
       after = [ "${slug}/unarchive" ];
     }
   ) config.deployKeys;
@@ -135,11 +203,7 @@ let
           insecure_ssl = "0";
         };
       };
-      lookup = {
-        endpoint = "repos/${slug}/hooks?per_page=100";
-        filter = "[.[][] | select(.config.url == ${builtins.toJSON url}) | .id] | first";
-        createEndpoint = "repos/${slug}/hooks";
-      };
+      lookup = lookupFor "webhooks" url;
       after = afterUnarchive;
     }
   ) config.webhooks;
@@ -173,8 +237,15 @@ let
   ) config.environments;
 
   # The permission endpoints answer without a body, so the comparison reads the permission from a list. The list names the read and write roles differently from the request.
-  permissionFilter =
-    select: "([.[][] | select(${select}) | .role_name // .permission] | first // \"\") | ({\"read\": \"pull\", \"write\": \"push\"}[.] // .)";
+  permissionRead =
+    kind: itemName:
+    let
+      listing = listings.${kind};
+    in
+    {
+      endpoint = "repos/${slug}/${listing.list}";
+      filter = "([${listing.items} | select(${listing.key} == ${builtins.toJSON itemName}) | .role_name // .permission] | first // \"\") | ({\"read\": \"pull\", \"write\": \"push\"}[.] // .)";
+    };
 
   collaboratorRequests = lib.mapAttrs' (
     user: permission:
@@ -182,10 +253,7 @@ let
       method = "PUT";
       endpoint = "repos/${slug}/collaborators/${user}";
       body = { inherit permission; };
-      liveFields.permission = {
-        endpoint = "repos/${slug}/collaborators?affiliation=direct&per_page=100";
-        filter = permissionFilter ".login == ${builtins.toJSON user}";
-      };
+      liveFields.permission = permissionRead "collaborators" user;
       after = afterUnarchive;
     }
   ) config.collaborators;
@@ -196,10 +264,7 @@ let
       method = "PUT";
       endpoint = "orgs/${organization}/teams/${team}/repos/${slug}";
       body = { inherit permission; };
-      liveFields.permission = {
-        endpoint = "repos/${slug}/teams?per_page=100";
-        filter = permissionFilter ".slug == ${builtins.toJSON team}";
-      };
+      liveFields.permission = permissionRead "teamAccess" team;
       after = afterUnarchive ++ [ "${organization}/teams/${team}/settings" ];
     }
   ) config.teamAccess;
@@ -215,11 +280,7 @@ let
         url_template = autolink.urlTemplate;
         is_alphanumeric = autolink.isAlphanumeric;
       };
-      lookup = {
-        endpoint = "repos/${slug}/autolinks?per_page=100";
-        filter = "[.[][] | select(.key_prefix == ${builtins.toJSON keyPrefix}) | .id] | first";
-        createEndpoint = "repos/${slug}/autolinks";
-      };
+      lookup = lookupFor "autolinks" keyPrefix;
       after = afterUnarchive;
     }
   ) config.autolinks;
@@ -249,65 +310,25 @@ let
     }
   );
 
-  # Each kind lists the live items as records with a `key` (the declared name) and an `id` (the part of the delete endpoint).
-  pruneKinds = {
-    labels = {
-      list = "labels?per_page=100";
-      filter = "[.[][] | {key: .name, id: (.name | @uri)}]";
-      keep = lib.attrNames config.labels;
-    };
-    variables = {
-      list = "actions/variables?per_page=30";
-      filter = "[.[].variables[] | {key: .name, id: .name}]";
-      keep = lib.attrNames config.variables;
-    };
-    secrets = {
-      list = "actions/secrets?per_page=100";
-      filter = "[.[].secrets[] | {key: .name, id: .name}]";
-      keep = config.secrets;
-    };
-    deployKeys = {
-      list = "keys?per_page=100";
-      filter = "[.[][] | {key: .title, id: .id}]";
-      keep = lib.attrNames config.deployKeys;
-    };
-    rulesets = {
-      list = "rulesets?includes_parents=false&per_page=100";
-      filter = "[.[][] | {key: .name, id: .id}]";
-      keep = lib.attrNames config.rulesets;
-    };
-    webhooks = {
-      list = "hooks?per_page=100";
-      filter = "[.[][] | {key: .config.url, id: .id}]";
-      keep = lib.attrNames config.webhooks;
-    };
-    autolinks = {
-      list = "autolinks?per_page=100";
-      filter = "[.[][] | {key: .key_prefix, id: .id}]";
-      keep = lib.attrNames config.autolinks;
-    };
-    environments = {
-      list = "environments?per_page=100";
-      filter = "[.[].environments[] | {key: .name, id: (.name | @uri)}]";
-      keep = lib.attrNames config.environments;
-    };
-    collaborators = {
-      list = "collaborators?affiliation=direct&per_page=100";
-      filter = "[.[][] | {key: .login, id: .login}]";
-      keep = lib.attrNames config.collaborators;
-    };
-    teamAccess = {
-      list = "teams?per_page=100";
-      filter = "[.[][] | {key: .slug, id: .slug}]";
-      keep = lib.attrNames config.teamAccess;
-    };
+  # The keys of the declared items. Pruning deletes every live item with another key.
+  declaredKeys = {
+    autolinks = lib.attrNames config.autolinks;
+    collaborators = lib.attrNames config.collaborators;
+    deployKeys = lib.attrNames config.deployKeys;
+    environments = lib.attrNames config.environments;
+    labels = lib.attrNames config.labels;
+    rulesets = lib.attrNames config.rulesets;
+    secrets = config.secrets;
+    teamAccess = lib.attrNames config.teamAccess;
+    variables = lib.attrNames config.variables;
+    webhooks = lib.attrNames config.webhooks;
   };
 
   pruneRequests = lib.listToAttrs (
     map (
       kind:
       let
-        spec = pruneKinds.${kind};
+        listing = listings.${kind};
       in
       lib.nameValuePair "${slug}/prune/${kind}" {
         method = "DELETE";
@@ -315,10 +336,11 @@ let
           if kind == "teamAccess" then
             "orgs/${organization}/teams/{id}/repos/${slug}"
           else
-            "repos/${slug}/${lib.head (lib.splitString "?" spec.list)}/{id}";
+            "${listingPath kind}/{id}";
         prune = {
-          endpoint = "repos/${slug}/${spec.list}";
-          inherit (spec) filter keep;
+          endpoint = "repos/${slug}/${listing.list}";
+          filter = "[${listing.items} | {key: ${listing.key}, id: ${listing.id}}]";
+          keep = declaredKeys.${kind};
         };
         after = afterUnarchive;
       }
@@ -328,8 +350,7 @@ let
   managed =
     pagesRequests
     // autolinkRequests
-    //
-    collections
+    // collections
     // rulesetRequests
     // deployKeyRequests
     // secretRequests
@@ -577,7 +598,7 @@ in
     };
 
     prune = mkOption {
-      type = types.listOf (types.enum (lib.attrNames pruneKinds));
+      type = types.listOf (types.enum (lib.attrNames listings));
       default = [ ];
       description = "The kinds of resource where Octonix deletes every item that you do not declare. A build lists each deletion before the switch makes it. Pruning `labels` also deletes the default GitHub labels. Pruning `environments` also deletes the `github-pages` environment that GitHub Pages creates.";
     };

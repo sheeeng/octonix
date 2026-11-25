@@ -306,7 +306,8 @@
 
       ''
       + lib.concatMapStringsSep "\n" (
-        request: lib.escapeShellArgs [
+        request:
+        lib.escapeShellArgs [
           "reconcile"
           (builtins.toJSON request)
         ]
