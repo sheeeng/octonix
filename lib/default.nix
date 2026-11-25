@@ -7,6 +7,64 @@
       modules = [ ../modules ] ++ modules;
     }).config;
 
+  # The schema function converts the module options into a JSON Schema, so an editor can validate and complete the TOML input.
+  schema =
+    let
+      typeSchema =
+        type:
+        {
+          nullOr = typeSchema type.nestedTypes.elemType;
+          listOf = {
+            type = "array";
+            items = typeSchema type.nestedTypes.elemType;
+          };
+          attrsOf = {
+            type = "object";
+            additionalProperties = typeSchema type.nestedTypes.elemType;
+          };
+          bool.type = "boolean";
+          int.type = "integer";
+          str.type = "string";
+          strMatching.type = "string";
+          submodule = optionsSchema (type.getSubOptions [ ]);
+          enum.enum = type.functor.payload.values;
+        }
+        .${type.name} or { };
+      entrySchema =
+        entry:
+        if entry._type or null == "option" then
+          typeSchema entry.type
+          // lib.optionalAttrs (lib.isString (entry.description or null)) { inherit (entry) description; }
+        else
+          optionsSchema entry;
+      optionsSchema = options: {
+        type = "object";
+        additionalProperties = false;
+        properties = lib.mapAttrs (_: entrySchema) (
+          lib.filterAttrs (
+            key: entry: key != "_module" && !(entry.internal or false) && !(entry.readOnly or false)
+          ) options
+        );
+      };
+    in
+    (optionsSchema (lib.evalModules { modules = [ ../modules ]; }).options)
+    // {
+      "$schema" = "http://json-schema.org/draft-07/schema#";
+    };
+
+  # The import script prints the TOML configuration of a live organization.
+  mkImport =
+    pkgs:
+    pkgs.writeShellApplication {
+      name = "octonix-import";
+      runtimeInputs = [
+        pkgs.gh
+        pkgs.jq
+        pkgs.remarshal
+      ];
+      text = builtins.readFile ../scripts/import.sh;
+    };
+
   mkSwitch =
     pkgs: requests:
     pkgs.writeShellApplication {
@@ -16,11 +74,13 @@
         pkgs.jq
       ];
       text = ''
+        check=0
         case "$*" in
           "") mode=switch ;;
           --build) mode=build ;;
+          "--build --check") mode=build check=1 ;;
           *)
-            echo "usage: octonix-switch [--build]" >&2
+            echo "usage: octonix-switch [--build [--check]]" >&2
             exit 2
             ;;
         esac
@@ -77,10 +137,10 @@
           exit 1
         }
 
-        # The difference function prints each body field whose live value differs, and it ignores the order of arrays.
+        # The difference function prints each body field whose live value differs. It ignores the order of arrays, and it treats null and an empty string alike, because GitHub returns null for an empty description.
         difference() {
           jq --null-input --raw-output --argjson live "$live" --argjson desired "$1" '
-            def normalize: if type == "array" then sort else . end;
+            def normalize: if type == "array" then sort elif . == null then "" else . end;
             $desired
             | to_entries[]
             | select((.value | normalize) != ($live[.key] | normalize))
@@ -316,6 +376,10 @@
 
         if [[ $mode == build ]]; then
           echo "Build: $created to create, $changed to change, $deleted to delete, $unchanged unchanged."
+          # With --check, pending changes exit with status 3, so a CI job can report drift.
+          if ((check == 1 && created + changed + deleted > 0)); then
+            exit 3
+          fi
         else
           echo "Switch: $created created, $changed changed, $deleted deleted, $unchanged unchanged."
         fi

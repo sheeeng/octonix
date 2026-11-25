@@ -131,10 +131,56 @@ rulesets."Automatically Request Copilot Review" = {
 };
 ```
 
+## Adopt an Existing Organization
+
+Write the live state of an organization to a TOML file. The command reads
+repository settings, topics, labels, variables, secret names, deploy keys,
+webhooks, environments, collaborators, team access, autolinks, Pages,
+rulesets, and teams with their members. Name repositories after the
+organization to import only those repositories.
+
+```bash
+nix run .#import -- my-organization > octonix.toml
+OCTONIX_CONFIG=$PWD/octonix.toml nix run --impure .#build
+```
+
+The build of an imported file shows no changes.
+
+## Share Defaults
+
+Set `repositoryDefaults` on an organization. Every repository of the
+organization uses these options unless it sets the option itself.
+
+```toml
+[organizations.my-organization.repositoryDefaults]
+hasWiki = false
+deleteBranchOnMerge = true
+```
+
+## Validate in an Editor
+
+Build a JSON Schema from the module options with `nix build .#schema`. An
+editor with TOML schema support, such as Taplo, uses it to complete option
+names and to reject a misspelled option.
+
+## Run in Continuous Integration
+
+Add `--check` to the build. It exits with status 3 when GitHub differs from
+the configuration.
+
+```bash
+nix run .#build -- --check
+```
+
+The file `examples/workflows/octonix.yml` is a GitHub Actions workflow. It
+shows the pending changes on a pull request, applies them after a merge to
+the main branch, and fails a daily run when GitHub drifts.
+
 ## Layout
 
 The `modules` directory holds the option declarations. The `lib` directory
-exposes `evalConfig` and `mkSwitch`. The `examples` directory holds sample
+exposes `evalConfig`, `mkSwitch`, `mkImport`, and `schema`. The `scripts`
+directory holds the import script. The `examples` directory holds sample
 configurations for the `stikkontakten` prototype organization.
 
 [gh]: https://cli.github.com/

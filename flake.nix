@@ -39,6 +39,8 @@
         in
         rec {
           default = switch;
+          import = octonixLib.mkImport pkgs;
+          schema = pkgs.writeText "octonix.schema.json" (builtins.toJSON octonixLib.schema);
           switch = octonixLib.mkSwitch pkgs exampleConfiguration.requests;
           build = pkgs.writeShellApplication {
             name = "octonix-build";
