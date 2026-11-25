@@ -69,7 +69,21 @@ immutable releases policy in `organizations.<name>.immutableReleases`.
 Octonix sends only the settings that you declare, so other settings keep
 their live values.
 
-Declare repositories in `organizations.<name>.repositories.<name>`.
+Declare repositories in `organizations.<name>.repositories.<name>`. Each
+repository supports its settings, `topics`, `labels`, and Actions
+`variables`. Octonix creates and updates labels and variables, and it does
+not delete the ones that you omit.
+
+## Use TOML Instead of Nix
+
+Write the same options in a TOML file, and set `OCTONIX_CONFIG` to its
+absolute path. The `--impure` option lets Nix read the variable.
+
+```bash
+export OCTONIX_CONFIG="$PWD/examples/stikkontakten.toml"
+nix run --impure .#build
+nix run --impure .#switch
+```
 
 ## Layout
 

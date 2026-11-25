@@ -14,7 +14,16 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       octonixLib = import ./lib { inherit (nixpkgs) lib; };
-      exampleConfiguration = octonixLib.evalConfig [ ./examples/stikkontakten.nix ];
+      # Set OCTONIX_CONFIG to a TOML file and pass --impure to use it instead of the example.
+      configurationFile = builtins.getEnv "OCTONIX_CONFIG";
+      exampleConfiguration = octonixLib.evalConfig [
+        (
+          if configurationFile == "" then
+            ./examples/stikkontakten.nix
+          else
+            builtins.fromTOML (builtins.readFile configurationFile)
+        )
+      ];
     in
     {
       lib = octonixLib;

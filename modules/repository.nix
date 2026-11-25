@@ -15,6 +15,48 @@ let
     endpoint = "repos/${slug}";
     body.archived = true;
   };
+
+  # A resource that GitHub creates and edits at the same endpoint: a POST that runs only when the endpoint is absent, then an idempotent PATCH.
+  collectionRequests =
+    kind: items: toBody:
+    lib.concatMapAttrs (
+      itemName: item:
+      let
+        body = toBody itemName item;
+        itemEndpoint = "repos/${slug}/${kind}/${lib.escapeURL itemName}";
+        itemSlug = "${slug}/${kind}/${itemName}";
+      in
+      {
+        "${itemSlug}/create" = {
+          method = "POST";
+          endpoint = "repos/${slug}/${kind}";
+          inherit body;
+          skipIfExists = itemEndpoint;
+          creates.${itemEndpoint} = body;
+          after = [ "${slug}/unarchive" ];
+        };
+        "${itemSlug}/settings" = {
+          method = "PATCH";
+          endpoint = itemEndpoint;
+          inherit body;
+          after = [ "${itemSlug}/create" ];
+        };
+      }
+    ) items;
+
+  collections =
+    collectionRequests "labels" config.labels (
+      itemName: label: {
+        name = itemName;
+        inherit (label) color description;
+      }
+    )
+    // collectionRequests "actions/variables" config.variables (
+      itemName: value: {
+        name = itemName;
+        inherit value;
+      }
+    );
 in
 {
   options = {
@@ -74,6 +116,32 @@ in
       type = types.listOf types.str;
       default = [ ];
       description = "The repository topics.";
+    };
+
+    labels = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            color = mkOption {
+              type = types.strMatching "[0-9a-fA-F]{6}";
+              description = "The label color as six hexadecimal digits without a hash sign.";
+            };
+            description = mkOption {
+              type = types.str;
+              default = "";
+              description = "The label description.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The labels by name. Octonix creates and updates these labels. It does not delete other labels.";
+    };
+
+    variables = mkOption {
+      type = types.attrsOf types.str;
+      default = { };
+      description = "The Actions variables by name. Octonix creates and updates these variables. It does not delete other variables.";
     };
 
     requests = mkOption {
@@ -155,9 +223,10 @@ in
       after = [ "${slug}/settings" ];
     };
   }
+  // collections
   // lib.optionalAttrs config.archived {
     "${slug}/archive" = archive // {
-      after = [ "${slug}/topics" ];
+      after = [ "${slug}/topics" ] ++ lib.attrNames collections;
     };
   };
 }

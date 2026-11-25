@@ -1,0 +1,14 @@
+# This example declares the stikkontakten prototype organization without Nix syntax.
+# Option names follow the module options, so `hasIssues` replaces `has_issues`.
+
+[organizations.stikkontakten.repositories.public-example]
+description = "Demonstrate how Octonix manages a public GitHub repository."
+visibility = "public"
+topics = ["nix", "octonix"]
+
+[organizations.stikkontakten.repositories.public-example.labels.triage]
+color = "fbca04"
+description = "Needs triage."
+
+[organizations.stikkontakten.repositories.public-example.variables]
+GREETING = "hello"
