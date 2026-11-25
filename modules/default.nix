@@ -72,6 +72,7 @@ in
                 skipIfExists
                 lookup
                 environmentSecret
+                prune
                 onFailure
                 creates
                 liveFields

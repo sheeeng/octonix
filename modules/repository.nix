@@ -65,6 +65,82 @@ let
       }
     );
 
+  # Each kind has one listing. The lookups, the permission reads, and the prune requests all read it. The `items` filter selects the records of every page, the `key` filter gives the declared name, and the `id` filter gives the part of the item endpoint.
+  listings =
+    lib.mapAttrs
+      (
+        _: listing:
+        {
+          items = ".[][]";
+          id = ".id";
+        }
+        // listing
+      )
+      {
+        autolinks = {
+          list = "autolinks?per_page=100";
+          key = ".key_prefix";
+        };
+        collaborators = {
+          list = "collaborators?affiliation=direct&per_page=100";
+          key = ".login";
+          id = ".login";
+        };
+        deployKeys = {
+          list = "keys?per_page=100";
+          key = ".title";
+        };
+        environments = {
+          list = "environments?per_page=100";
+          items = ".[].environments[]";
+          key = ".name";
+          id = "(.name | @uri)";
+        };
+        labels = {
+          list = "labels?per_page=100";
+          key = ".name";
+          id = "(.name | @uri)";
+        };
+        rulesets = {
+          list = "rulesets?includes_parents=false&per_page=100";
+          key = ".name";
+        };
+        secrets = {
+          list = "actions/secrets?per_page=100";
+          items = ".[].secrets[]";
+          key = ".name";
+          id = ".name";
+        };
+        teamAccess = {
+          list = "teams?per_page=100";
+          key = ".slug";
+          id = ".slug";
+        };
+        variables = {
+          list = "actions/variables?per_page=30";
+          items = ".[].variables[]";
+          key = ".name";
+          id = ".name";
+        };
+        webhooks = {
+          list = "hooks?per_page=100";
+          key = ".config.url";
+        };
+      };
+
+  listingPath = kind: "repos/${slug}/${lib.head (lib.splitString "?" listings.${kind}.list)}";
+
+  lookupFor =
+    kind: itemName:
+    let
+      listing = listings.${kind};
+    in
+    {
+      endpoint = "repos/${slug}/${listing.list}";
+      filter = "[${listing.items} | select(${listing.key} == ${builtins.toJSON itemName}) | ${listing.id}] | first";
+      createEndpoint = listingPath kind;
+    };
+
   # GitHub identifies a ruleset by a generated identifier, so each request finds the ruleset by its unique name.
   rulesetRequests = lib.mapAttrs' (
     rulesetName: ruleset:
@@ -72,11 +148,7 @@ let
       method = "PUT";
       endpoint = "repos/${slug}/rulesets/{id}";
       inherit (ruleset) body;
-      lookup = {
-        endpoint = "repos/${slug}/rulesets?includes_parents=false&per_page=100";
-        filter = "[.[][] | select(.name == ${builtins.toJSON rulesetName}) | .id] | first";
-        createEndpoint = "repos/${slug}/rulesets";
-      };
+      lookup = lookupFor "rulesets" rulesetName;
       # A ruleset can block the first commit, so the rulesets wait for the default branch.
       after = [ "${slug}/initialize" ];
     }
@@ -93,11 +165,7 @@ let
         inherit (deployKey) key;
         read_only = deployKey.readOnly;
       };
-      lookup = {
-        endpoint = "repos/${slug}/keys?per_page=100";
-        filter = "[.[][] | select(.title == ${builtins.toJSON title}) | .id] | first";
-        createEndpoint = "repos/${slug}/keys";
-      };
+      lookup = lookupFor "deployKeys" title;
       after = [ "${slug}/unarchive" ];
     }
   ) config.deployKeys;
@@ -135,11 +203,7 @@ let
           insecure_ssl = "0";
         };
       };
-      lookup = {
-        endpoint = "repos/${slug}/hooks?per_page=100";
-        filter = "[.[][] | select(.config.url == ${builtins.toJSON url}) | .id] | first";
-        createEndpoint = "repos/${slug}/hooks";
-      };
+      lookup = lookupFor "webhooks" url;
       after = afterUnarchive;
     }
   ) config.webhooks;
@@ -173,8 +237,15 @@ let
   ) config.environments;
 
   # The permission endpoints answer without a body, so the comparison reads the permission from a list. The list names the read and write roles differently from the request.
-  permissionFilter =
-    select: "([.[][] | select(${select}) | .role_name // .permission] | first // \"\") | ({\"read\": \"pull\", \"write\": \"push\"}[.] // .)";
+  permissionRead =
+    kind: itemName:
+    let
+      listing = listings.${kind};
+    in
+    {
+      endpoint = "repos/${slug}/${listing.list}";
+      filter = "([${listing.items} | select(${listing.key} == ${builtins.toJSON itemName}) | .role_name // .permission] | first // \"\") | ({\"read\": \"pull\", \"write\": \"push\"}[.] // .)";
+    };
 
   collaboratorRequests = lib.mapAttrs' (
     user: permission:
@@ -182,10 +253,7 @@ let
       method = "PUT";
       endpoint = "repos/${slug}/collaborators/${user}";
       body = { inherit permission; };
-      liveFields.permission = {
-        endpoint = "repos/${slug}/collaborators?affiliation=direct&per_page=100";
-        filter = permissionFilter ".login == ${builtins.toJSON user}";
-      };
+      liveFields.permission = permissionRead "collaborators" user;
       after = afterUnarchive;
     }
   ) config.collaborators;
@@ -196,23 +264,101 @@ let
       method = "PUT";
       endpoint = "orgs/${organization}/teams/${team}/repos/${slug}";
       body = { inherit permission; };
-      liveFields.permission = {
-        endpoint = "repos/${slug}/teams?per_page=100";
-        filter = permissionFilter ".slug == ${builtins.toJSON team}";
-      };
+      liveFields.permission = permissionRead "teamAccess" team;
       after = afterUnarchive ++ [ "${organization}/teams/${team}/settings" ];
     }
   ) config.teamAccess;
 
+  # GitHub identifies an autolink by a generated identifier, so each request finds the autolink by its unique prefix. GitHub cannot edit an autolink, so a changed autolink stops the switch.
+  autolinkRequests = lib.mapAttrs' (
+    keyPrefix: autolink:
+    lib.nameValuePair "${slug}/autolinks/${keyPrefix}" {
+      method = "PATCH";
+      endpoint = "repos/${slug}/autolinks/{id}";
+      body = {
+        key_prefix = keyPrefix;
+        url_template = autolink.urlTemplate;
+        is_alphanumeric = autolink.isAlphanumeric;
+      };
+      lookup = lookupFor "autolinks" keyPrefix;
+      after = afterUnarchive;
+    }
+  ) config.autolinks;
+
+  # GitHub Pages needs the source branch, so the requests wait for the first commit.
+  pagesRequests = lib.optionalAttrs (config.pages != null) (
+    let
+      body.source = {
+        inherit (config.pages) branch path;
+      };
+    in
+    {
+      "${slug}/pages/create" = {
+        method = "POST";
+        endpoint = "repos/${slug}/pages";
+        inherit body;
+        skipIfExists = "repos/${slug}/pages";
+        creates."repos/${slug}/pages" = body;
+        after = [ "${slug}/initialize" ];
+      };
+      "${slug}/pages/settings" = {
+        method = "PUT";
+        endpoint = "repos/${slug}/pages";
+        inherit body;
+        after = [ "${slug}/pages/create" ];
+      };
+    }
+  );
+
+  # The keys of the declared items. Pruning deletes every live item with another key.
+  declaredKeys = {
+    autolinks = lib.attrNames config.autolinks;
+    collaborators = lib.attrNames config.collaborators;
+    deployKeys = lib.attrNames config.deployKeys;
+    environments = lib.attrNames config.environments;
+    labels = lib.attrNames config.labels;
+    rulesets = lib.attrNames config.rulesets;
+    secrets = config.secrets;
+    teamAccess = lib.attrNames config.teamAccess;
+    variables = lib.attrNames config.variables;
+    webhooks = lib.attrNames config.webhooks;
+  };
+
+  pruneRequests = lib.listToAttrs (
+    map (
+      kind:
+      let
+        listing = listings.${kind};
+      in
+      lib.nameValuePair "${slug}/prune/${kind}" {
+        method = "DELETE";
+        endpoint =
+          if kind == "teamAccess" then
+            "orgs/${organization}/teams/{id}/repos/${slug}"
+          else
+            "${listingPath kind}/{id}";
+        prune = {
+          endpoint = "repos/${slug}/${listing.list}";
+          filter = "[${listing.items} | {key: ${listing.key}, id: ${listing.id}}]";
+          keep = declaredKeys.${kind};
+        };
+        after = afterUnarchive;
+      }
+    ) config.prune
+  );
+
   managed =
-    collections
+    pagesRequests
+    // autolinkRequests
+    // collections
     // rulesetRequests
     // deployKeyRequests
     // secretRequests
     // webhookRequests
     // environmentRequests
     // collaboratorRequests
-    // teamAccessRequests;
+    // teamAccessRequests
+    // pruneRequests;
 in
 {
   options = {
@@ -291,13 +437,13 @@ in
         }
       );
       default = { };
-      description = "The labels by name. Octonix creates and updates these labels. It does not delete other labels.";
+      description = "The labels by name. Octonix creates and updates these labels. It deletes other labels only when `prune` lists labels.";
     };
 
     variables = mkOption {
       type = types.attrsOf types.str;
       default = { };
-      description = "The Actions variables by name. Octonix creates and updates these variables. It does not delete other variables.";
+      description = "The Actions variables by name. Octonix creates and updates these variables. It deletes other variables only when `prune` lists variables.";
     };
 
     deployKeys = mkOption {
@@ -317,7 +463,7 @@ in
         }
       );
       default = { };
-      description = "The deploy keys, keyed by their unique titles. GitHub cannot edit a deploy key, so delete a changed key by hand before the next switch. Octonix does not delete deploy keys that you do not declare.";
+      description = "The deploy keys, keyed by their unique titles. GitHub cannot edit a deploy key, so delete a changed key by hand before the next switch. Octonix deletes undeclared deploy keys only when `prune` lists them.";
     };
 
     secrets = mkOption {
@@ -352,7 +498,7 @@ in
         }
       );
       default = { };
-      description = "The webhooks, keyed by their unique payload addresses. Octonix does not manage webhook secrets, and it does not delete webhooks that you do not declare.";
+      description = "The webhooks, keyed by their unique payload addresses. Octonix does not manage webhook secrets, and it deletes undeclared webhooks only when `prune` lists them.";
     };
 
     environments = mkOption {
@@ -386,7 +532,7 @@ in
         }
       );
       default = { };
-      description = "The deployment environments by name. Octonix does not delete environments that you do not declare.";
+      description = "The deployment environments by name. Octonix deletes undeclared environments only when `prune` lists them.";
     };
 
     collaborators = mkOption {
@@ -401,10 +547,60 @@ in
       description = "The organization teams by slug, with their repository permission. Declare the team in `teams` of the organization.";
     };
 
+    autolinks = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            urlTemplate = mkOption {
+              type = types.str;
+              description = "The link target, which contains `<num>` for the reference number.";
+            };
+            isAlphanumeric = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether the reference accepts letters as well as digits.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The autolinks, keyed by their unique reference prefixes. GitHub cannot edit an autolink, so delete a changed autolink by hand before the next switch. Octonix deletes undeclared autolinks only when `prune` lists them.";
+    };
+
+    pages = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            branch = mkOption {
+              type = types.str;
+              default = "main";
+              description = "The branch that GitHub publishes.";
+            };
+            path = mkOption {
+              type = types.enum [
+                "/"
+                "/docs"
+              ];
+              default = "/";
+              description = "The directory of the branch that GitHub publishes.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "The GitHub Pages site that publishes a branch. A null value leaves the site alone. A free organization can publish only public repositories.";
+    };
+
     rulesets = mkOption {
       type = types.attrsOf (types.submodule ./ruleset.nix);
       default = { };
-      description = "The repository rulesets, keyed by their unique names. Octonix does not delete rulesets that you do not declare.";
+      description = "The repository rulesets, keyed by their unique names. Octonix deletes undeclared rulesets only when `prune` lists them.";
+    };
+
+    prune = mkOption {
+      type = types.listOf (types.enum (lib.attrNames listings));
+      default = [ ];
+      description = "The kinds of resource where Octonix deletes every item that you do not declare. A build lists each deletion before the switch makes it. Pruning `labels` also deletes the default GitHub labels. Pruning `environments` also deletes the `github-pages` environment that GitHub Pages creates.";
     };
 
     requests = mkOption {
