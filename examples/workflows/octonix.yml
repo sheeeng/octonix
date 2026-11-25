@@ -1,0 +1,35 @@
+# Copy this file to `.github/workflows/octonix.yml` in the repository that holds your configuration.
+# Create the secret `OCTONIX_TOKEN` with a token that can administer the organization. Add each secret
+# that your configuration declares, for example `OCTONIX_EXAMPLE_SECRET`, and list it in the `env` block.
+name: octonix
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * *"
+
+env:
+  GH_TOKEN: ${{ secrets.OCTONIX_TOKEN }}
+  OCTONIX_CONFIG: ${{ github.workspace }}/octonix.toml
+  OCTONIX_EXAMPLE_SECRET: ${{ secrets.OCTONIX_EXAMPLE_SECRET }}
+
+jobs:
+  # A pull request shows the pending changes. A scheduled run fails when GitHub drifts from the configuration.
+  build:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix run --impure github:sheeeng/octonix#build -- ${{ github.event_name == 'schedule' && '--check' || '' }}
+
+  # A merge to the main branch applies the configuration.
+  switch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix run --impure github:sheeeng/octonix#switch
