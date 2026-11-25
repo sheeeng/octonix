@@ -71,6 +71,7 @@ in
                 body
                 skipIfExists
                 lookup
+                environmentSecret
                 onFailure
                 creates
                 liveFields

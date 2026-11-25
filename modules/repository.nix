@@ -75,7 +75,43 @@ let
     }
   ) config.rulesets;
 
-  managed = collections // rulesetRequests;
+  # GitHub identifies a deploy key by a generated identifier, so each request finds the key by its unique title. GitHub cannot edit a deploy key, so a changed key stops the switch.
+  deployKeyRequests = lib.mapAttrs' (
+    title: deployKey:
+    lib.nameValuePair "${slug}/deploy-keys/${title}" {
+      method = "PATCH";
+      endpoint = "repos/${slug}/keys/{id}";
+      body = {
+        inherit title;
+        inherit (deployKey) key;
+        read_only = deployKey.readOnly;
+      };
+      lookup = {
+        endpoint = "repos/${slug}/keys?per_page=100";
+        filter = "[.[][] | select(.title == ${builtins.toJSON title}) | .id] | first";
+        createEndpoint = "repos/${slug}/keys";
+      };
+      after = [ "${slug}/unarchive" ];
+    }
+  ) config.deployKeys;
+
+  secretRequests = lib.listToAttrs (
+    map (
+      secretName:
+      lib.nameValuePair "${slug}/secrets/${secretName}" {
+        method = "PUT";
+        endpoint = "repos/${slug}/actions/secrets/${secretName}";
+        skipIfExists = "repos/${slug}/actions/secrets/${secretName}";
+        environmentSecret = {
+          repository = slug;
+          name = secretName;
+        };
+        after = [ "${slug}/unarchive" ];
+      }
+    ) config.secrets
+  );
+
+  managed = collections // rulesetRequests // deployKeyRequests // secretRequests;
 in
 {
   options = {
@@ -161,6 +197,32 @@ in
       type = types.attrsOf types.str;
       default = { };
       description = "The Actions variables by name. Octonix creates and updates these variables. It does not delete other variables.";
+    };
+
+    deployKeys = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            key = mkOption {
+              type = types.str;
+              description = "The public key.";
+            };
+            readOnly = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether the key has read access only.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The deploy keys, keyed by their unique titles. GitHub cannot edit a deploy key, so delete a changed key by hand before the next switch. Octonix does not delete deploy keys that you do not declare.";
+    };
+
+    secrets = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      description = "The Actions secret names. The switch script reads each value from the environment variable of the same name, and sets only a secret that does not exist. It never stores a value in the Nix store.";
     };
 
     rulesets = mkOption {

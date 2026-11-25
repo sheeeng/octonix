@@ -5,6 +5,7 @@
 description = "Demonstrate how Octonix manages a public GitHub repository."
 visibility = "public"
 topics = ["nix", "octonix"]
+secrets = ["OCTONIX_EXAMPLE_SECRET"]
 
 [organizations.stikkontakten.repositories.public-example.labels.triage]
 color = "fbca04"
@@ -12,3 +13,10 @@ description = "Needs triage."
 
 [organizations.stikkontakten.repositories.public-example.variables]
 GREETING = "hello"
+
+[organizations.stikkontakten.repositories.public-example.deployKeys.example]
+key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAahxV+m7QX33AKhuuowvkw5txFYZwJ+VmHIxKEl8FxD"
+
+[organizations.stikkontakten.repositories.public-example.rulesets.protect-main]
+enforcement = "active"
+rules = [{ type = "deletion" }, { type = "non_fast_forward" }]

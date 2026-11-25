@@ -148,6 +148,7 @@
           local name=$1 method=$2 endpoint=$3 body=$4 skip_if_exists=$5
           local failure_method=$6 failure_endpoint=$7 failure_body=$8 creates=$9 live_fields=''${10}
           local lookup_endpoint=''${11} lookup_filter=''${12} create_method=''${13} create_endpoint=''${14}
+          local secret_repository=''${15} secret_name=''${16}
           local action="" changes="" resource state found=0
 
           if [[ -n $lookup_endpoint ]]; then
@@ -177,6 +178,12 @@
             else
               action=change
             fi
+          fi
+
+          # A secret value comes from the environment variable with the name of the secret. The switch script never reads the value back from GitHub, so it sets only a missing secret.
+          if [[ -n $secret_name && $action == create && -z ''${!secret_name-} ]]; then
+            echo "octonix: set the environment variable $secret_name to create the secret" >&2
+            exit 1
           fi
 
           case $action in
@@ -219,7 +226,9 @@
             return
           fi
 
-          if [[ $action != unchanged ]]; then
+          if [[ $action != unchanged && -n $secret_name ]]; then
+            gh secret set "$secret_name" --repo "$secret_repository" --body "''${!secret_name}"
+          elif [[ $action != unchanged ]]; then
             printf '%s' "$body" | gh api --method "$method" --input - --silent "$endpoint"
           fi
           # The cleanup also covers a request that was already satisfied, because a later failure can still leave the wrong state.
@@ -234,6 +243,7 @@
         let
           onFailure = request.onFailure or null;
           lookup = request.lookup or null;
+          secret = request.environmentSecret or null;
         in
         lib.escapeShellArgs [
           "reconcile"
@@ -251,6 +261,8 @@
           (if lookup == null then "" else lookup.filter)
           (if lookup == null then "" else lookup.createMethod)
           (if lookup == null then "" else lookup.createEndpoint)
+          (if secret == null then "" else secret.repository)
+          (if secret == null then "" else secret.name)
         ]
       ) requests
       + ''

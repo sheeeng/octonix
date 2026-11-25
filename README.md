@@ -70,9 +70,16 @@ Octonix sends only the settings that you declare, so other settings keep
 their live values.
 
 Declare repositories in `organizations.<name>.repositories.<name>`. Each
-repository supports its settings, `topics`, `labels`, and Actions
-`variables`. Octonix creates and updates labels and variables, and it does
-not delete the ones that you omit.
+repository supports its settings, `topics`, `labels`, Actions `variables`,
+Actions `secrets`, `deployKeys`, and `rulesets`. Octonix creates and
+updates these resources, and it does not delete the ones that you omit.
+
+Declare each secret as a name in `secrets`. The switch script reads the
+value from the environment variable with the same name, and it sets only a
+secret that does not exist. GitHub never returns a secret value, so the
+script cannot detect a changed value. The value never enters the Nix store.
+GitHub cannot edit a deploy key, so delete a changed key by hand before the
+next switch.
 
 ## Use TOML Instead of Nix
 

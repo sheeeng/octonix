@@ -64,6 +64,25 @@ in
       description = "The body fields whose live value the endpoint of this request does not return. The comparison reads each of them from another endpoint.";
     };
 
+    environmentSecret = mkOption {
+      type = types.nullOr (
+        types.submodule {
+          options = {
+            repository = mkOption {
+              type = types.str;
+              description = "The repository that owns the secret, in the form `owner/name`.";
+            };
+            name = mkOption {
+              type = types.str;
+              description = "The secret name, which is also the name of the environment variable that holds the value.";
+            };
+          };
+        }
+      );
+      default = null;
+      description = "A secret that the switch script sets with `gh secret set`, which encrypts the value. The script reads the value from the environment variable and sets only a missing secret, because GitHub never returns a secret value. Set `skipIfExists` to the endpoint of the secret.";
+    };
+
     lookup = mkOption {
       type = types.nullOr (
         types.submodule {
