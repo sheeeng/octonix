@@ -25,7 +25,7 @@ let
 
   # A resource that GitHub creates and edits at the same endpoint: a POST that runs only when the endpoint is absent, then an idempotent PATCH.
   collectionRequests =
-    kind: items: toBody:
+    kind: after: items: toBody:
     lib.concatMapAttrs (
       itemName: item:
       let
@@ -40,7 +40,7 @@ let
           inherit body;
           skipIfExists = itemEndpoint;
           creates.${itemEndpoint} = body;
-          after = [ "${slug}/unarchive" ];
+          inherit after;
         };
         "${itemSlug}/settings" = {
           method = "PATCH";
@@ -52,18 +52,24 @@ let
     ) items;
 
   collections =
-    collectionRequests "labels" config.labels (
+    collectionRequests "labels" afterUnarchive config.labels (
       itemName: label: {
         name = itemName;
         inherit (label) color description;
       }
     )
-    // collectionRequests "actions/variables" config.variables (
-      itemName: value: {
-        name = itemName;
-        inherit value;
-      }
-    );
+    // collectionRequests "actions/variables" afterUnarchive config.variables variableBody
+    // lib.concatMapAttrs (
+      environment: declaration:
+      collectionRequests "environments/${lib.escapeURL environment}/variables" [
+        "${slug}/environments/${environment}"
+      ] declaration.variables variableBody
+    ) config.environments;
+
+  variableBody = itemName: value: {
+    name = itemName;
+    inherit value;
+  };
 
   # Each kind has one listing. The lookups, the permission reads, and the prune requests all read it. The `items` filter selects the records of every page, the `key` filter gives the declared name, and the `id` filter gives the part of the item endpoint.
   listings =
@@ -170,21 +176,40 @@ let
     }
   ) config.deployKeys;
 
-  secretRequests = lib.listToAttrs (
-    map (
-      secretName:
-      lib.nameValuePair "${slug}/secrets/${secretName}" {
-        method = "PUT";
-        endpoint = "repos/${slug}/actions/secrets/${secretName}";
-        skipIfExists = "repos/${slug}/actions/secrets/${secretName}";
-        environmentSecret = {
-          repository = slug;
-          name = secretName;
-        };
-        after = [ "${slug}/unarchive" ];
-      }
-    ) config.secrets
-  );
+  # The scope is the endpoint path of the secrets, the request name, and the requests that must run first.
+  secretRequests =
+    scope: after: secretNames:
+    lib.listToAttrs (
+      map (
+        secretName:
+        lib.nameValuePair "${scope.name}/secrets/${secretName}" {
+          method = "PUT";
+          endpoint = "${scope.endpoint}/secrets/${secretName}";
+          skipIfExists = "${scope.endpoint}/secrets/${secretName}";
+          environmentSecret = {
+            repository = slug;
+            name = secretName;
+            inherit (scope) environment;
+          };
+          inherit after;
+        }
+      ) secretNames
+    );
+
+  allSecretRequests =
+    secretRequests {
+      name = slug;
+      endpoint = "repos/${slug}/actions";
+      environment = "";
+    } afterUnarchive config.secrets
+    // lib.concatMapAttrs (
+      environment: declaration:
+      secretRequests {
+        name = "${slug}/environments/${environment}";
+        endpoint = "repos/${slug}/environments/${lib.escapeURL environment}";
+        inherit environment;
+      } [ "${slug}/environments/${environment}" ] declaration.secrets
+    ) config.environments;
 
   # Each request waits for the unarchive request, because GitHub rejects edits to an archived repository.
   afterUnarchive = [ "${slug}/unarchive" ];
@@ -353,7 +378,7 @@ let
     // collections
     // rulesetRequests
     // deployKeyRequests
-    // secretRequests
+    // allSecretRequests
     // webhookRequests
     // environmentRequests
     // collaboratorRequests
@@ -505,6 +530,16 @@ in
       type = types.attrsOf (
         types.submodule {
           options = {
+            variables = mkOption {
+              type = types.attrsOf types.str;
+              default = { };
+              description = "The variables of the environment by name. Octonix creates and updates them, and never deletes one.";
+            };
+            secrets = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              description = "The secret names of the environment. The switch script reads each value from the environment variable of the same name, and sets only a secret that does not exist.";
+            };
             waitTimer = mkOption {
               type = types.ints.between 0 43200;
               default = 0;

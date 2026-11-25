@@ -237,7 +237,7 @@
         # The reconcile function receives one request as JSON. It reads each field with a NUL delimiter, so a filter can span lines.
         reconcile() {
           local name method endpoint body skip_if_exists failure_method failure_endpoint failure_body creates live_fields
-          local lookup_endpoint lookup_filter create_method create_endpoint secret_repository secret_name
+          local lookup_endpoint lookup_filter create_method create_endpoint secret_repository secret_name secret_environment
           local prune_endpoint prune_filter prune_keep
           {
             read -r -d "" name
@@ -256,6 +256,7 @@
             read -r -d "" create_endpoint
             read -r -d "" secret_repository
             read -r -d "" secret_name
+            read -r -d "" secret_environment
             read -r -d "" prune_endpoint
             read -r -d "" prune_filter
             read -r -d "" prune_keep
@@ -265,7 +266,7 @@
               (.onFailure.method // ""), (.onFailure.endpoint // ""), (.onFailure.body // {} | tojson),
               (.creates // {} | tojson), (.liveFields // {} | tojson),
               (.lookup.endpoint // ""), (.lookup.filter // ""), (.lookup.createMethod // ""), (.lookup.createEndpoint // ""),
-              (.environmentSecret.repository // ""), (.environmentSecret.name // ""),
+              (.environmentSecret.repository // ""), (.environmentSecret.name // ""), (.environmentSecret.environment // ""),
               (.prune.endpoint // ""), (.prune.filter // ""), (.prune.keep // [] | tojson)
             ][] | . + "\u0000"
           ' <<<"$1")
@@ -352,7 +353,7 @@
           fi
 
           if [[ $action != unchanged && -n $secret_name ]]; then
-            gh secret set "$secret_name" --repo "$secret_repository" --body "''${!secret_name}"
+            gh secret set "$secret_name" --repo "$secret_repository" ''${secret_environment:+--env "$secret_environment"} --body "''${!secret_name}"
             listings=()
           elif [[ $action != unchanged ]]; then
             printf '%s' "$body" | gh api --method "$method" --input - --silent "$endpoint"
