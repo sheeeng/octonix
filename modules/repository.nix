@@ -8,6 +8,13 @@
 }:
 let
   inherit (lib) mkOption types;
+  permission = types.enum [
+    "admin"
+    "maintain"
+    "pull"
+    "push"
+    "triage"
+  ];
   slug = "${organization}/${name}";
   branchEndpoint = "repos/${slug}/branches/${lib.escapeURL config.defaultBranch}";
   archive = {
@@ -111,7 +118,101 @@ let
     ) config.secrets
   );
 
-  managed = collections // rulesetRequests // deployKeyRequests // secretRequests;
+  # Each request waits for the unarchive request, because GitHub rejects edits to an archived repository.
+  afterUnarchive = [ "${slug}/unarchive" ];
+
+  # GitHub identifies a webhook by a generated identifier, so each request finds the webhook by its unique address.
+  webhookRequests = lib.mapAttrs' (
+    url: webhook:
+    lib.nameValuePair "${slug}/webhooks/${url}" {
+      method = "PATCH";
+      endpoint = "repos/${slug}/hooks/{id}";
+      body = {
+        inherit (webhook) active events;
+        config = {
+          inherit url;
+          content_type = webhook.contentType;
+          insecure_ssl = "0";
+        };
+      };
+      lookup = {
+        endpoint = "repos/${slug}/hooks?per_page=100";
+        filter = "[.[][] | select(.config.url == ${builtins.toJSON url}) | .id] | first";
+        createEndpoint = "repos/${slug}/hooks";
+      };
+      after = afterUnarchive;
+    }
+  ) config.webhooks;
+
+  environmentRequests = lib.mapAttrs' (
+    environment: declaration:
+    let
+      endpoint = "repos/${slug}/environments/${lib.escapeURL environment}";
+    in
+    lib.nameValuePair "${slug}/environments/${environment}" {
+      method = "PUT";
+      inherit endpoint;
+      body = {
+        wait_timer = declaration.waitTimer;
+        deployment_branch_policy =
+          if declaration.deploymentBranchPolicy == null then
+            null
+          else
+            {
+              protected_branches = declaration.deploymentBranchPolicy.protectedBranches;
+              custom_branch_policies = declaration.deploymentBranchPolicy.customBranchPolicies;
+            };
+      };
+      # The environment endpoint returns the wait timer inside its protection rules.
+      liveFields.wait_timer = {
+        inherit endpoint;
+        filter = "(.[0].protection_rules // []) | map(select(.type == \"wait_timer\") | .wait_timer) | (first // 0)";
+      };
+      after = afterUnarchive;
+    }
+  ) config.environments;
+
+  # The permission endpoints answer without a body, so the comparison reads the permission from a list. The list names the read and write roles differently from the request.
+  permissionFilter =
+    select: "([.[][] | select(${select}) | .role_name // .permission] | first // \"\") | ({\"read\": \"pull\", \"write\": \"push\"}[.] // .)";
+
+  collaboratorRequests = lib.mapAttrs' (
+    user: permission:
+    lib.nameValuePair "${slug}/collaborators/${user}" {
+      method = "PUT";
+      endpoint = "repos/${slug}/collaborators/${user}";
+      body = { inherit permission; };
+      liveFields.permission = {
+        endpoint = "repos/${slug}/collaborators?affiliation=direct&per_page=100";
+        filter = permissionFilter ".login == ${builtins.toJSON user}";
+      };
+      after = afterUnarchive;
+    }
+  ) config.collaborators;
+
+  teamAccessRequests = lib.mapAttrs' (
+    team: permission:
+    lib.nameValuePair "${slug}/teams/${team}" {
+      method = "PUT";
+      endpoint = "orgs/${organization}/teams/${team}/repos/${slug}";
+      body = { inherit permission; };
+      liveFields.permission = {
+        endpoint = "repos/${slug}/teams?per_page=100";
+        filter = permissionFilter ".slug == ${builtins.toJSON team}";
+      };
+      after = afterUnarchive ++ [ "${organization}/teams/${team}/settings" ];
+    }
+  ) config.teamAccess;
+
+  managed =
+    collections
+    // rulesetRequests
+    // deployKeyRequests
+    // secretRequests
+    // webhookRequests
+    // environmentRequests
+    // collaboratorRequests
+    // teamAccessRequests;
 in
 {
   options = {
@@ -223,6 +324,81 @@ in
       type = types.listOf types.str;
       default = [ ];
       description = "The Actions secret names. The switch script reads each value from the environment variable of the same name, and sets only a secret that does not exist. It never stores a value in the Nix store.";
+    };
+
+    webhooks = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            events = mkOption {
+              type = types.listOf types.str;
+              default = [ "push" ];
+              description = "The events that trigger the webhook.";
+            };
+            active = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether GitHub delivers the events.";
+            };
+            contentType = mkOption {
+              type = types.enum [
+                "form"
+                "json"
+              ];
+              default = "json";
+              description = "The media type of the payload.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The webhooks, keyed by their unique payload addresses. Octonix does not manage webhook secrets, and it does not delete webhooks that you do not declare.";
+    };
+
+    environments = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            waitTimer = mkOption {
+              type = types.ints.between 0 43200;
+              default = 0;
+              description = "The minutes that a deployment waits before it proceeds.";
+            };
+            deploymentBranchPolicy = mkOption {
+              type = types.nullOr (
+                types.submodule {
+                  options = {
+                    protectedBranches = mkOption {
+                      type = types.bool;
+                      description = "Whether only protected branches can deploy.";
+                    };
+                    customBranchPolicies = mkOption {
+                      type = types.bool;
+                      description = "Whether only branches that match custom policies can deploy.";
+                    };
+                  };
+                }
+              );
+              default = null;
+              description = "The branches that can deploy to the environment. A null value lets every branch deploy.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = "The deployment environments by name. Octonix does not delete environments that you do not declare.";
+    };
+
+    collaborators = mkOption {
+      type = types.attrsOf permission;
+      default = { };
+      description = "The direct collaborators by GitHub user name, with their repository permission. GitHub sends an invitation to a user who is not a collaborator yet. Octonix does not remove collaborators that you do not declare.";
+    };
+
+    teamAccess = mkOption {
+      type = types.attrsOf permission;
+      default = { };
+      description = "The organization teams by slug, with their repository permission. Declare the team in `teams` of the organization.";
     };
 
     rulesets = mkOption {

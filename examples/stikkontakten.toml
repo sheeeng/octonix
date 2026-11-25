@@ -20,3 +20,18 @@ key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAahxV+m7QX33AKhuuowvkw5txFYZwJ+VmHIx
 [organizations.stikkontakten.repositories.public-example.rulesets.protect-main]
 enforcement = "active"
 rules = [{ type = "deletion" }, { type = "non_fast_forward" }]
+
+[organizations.stikkontakten.teams.maintainers]
+description = "Maintain the stikkontakten repositories."
+
+[organizations.stikkontakten.teams.maintainers.members]
+sheeeng = "maintainer"
+
+[organizations.stikkontakten.repositories.public-example.teamAccess]
+maintainers = "maintain"
+
+[organizations.stikkontakten.repositories.public-example.webhooks."https://example.com/octonix"]
+events = ["push", "pull_request"]
+
+[organizations.stikkontakten.repositories.public-example.environments.production]
+waitTimer = 5
