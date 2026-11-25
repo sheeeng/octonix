@@ -71,8 +71,13 @@ their live values.
 
 Declare repositories in `organizations.<name>.repositories.<name>`. Each
 repository supports its settings, `topics`, `labels`, Actions `variables`,
-Actions `secrets`, `deployKeys`, and `rulesets`. Octonix creates and
-updates these resources, and it does not delete the ones that you omit.
+Actions `secrets`, `deployKeys`, `rulesets`, `webhooks`, `environments`,
+`collaborators`, `teamAccess`, `autolinks`, and `pages`. Declare teams in
+`organizations.<name>.teams`, with their members. Octonix creates and
+updates these resources. It deletes the ones that you omit only for the
+kinds that `prune` lists.
+GitHub sends an invitation to a collaborator who is not a member yet.
+Octonix does not manage webhook secrets.
 
 Declare each secret as a name in `secrets`. The switch script reads the
 value from the environment variable with the same name, and it sets only a
@@ -80,6 +85,18 @@ secret that does not exist. GitHub never returns a secret value, so the
 script cannot detect a changed value. The value never enters the Nix store.
 GitHub cannot edit a deploy key, so delete a changed key by hand before the
 next switch.
+
+Set `prune` on a repository to delete undeclared items. It lists kinds:
+`autolinks`, `collaborators`, `deployKeys`, `environments`, `labels`,
+`rulesets`, `secrets`, `teamAccess`, `variables`, and `webhooks`. A build
+prints each deletion with a minus sign, so you can review it before the
+switch. Pruning `labels` deletes the default GitHub labels. Pruning
+`environments` deletes the `github-pages` environment. Octonix never
+prunes repositories, teams, team members, or organization settings.
+
+```toml
+prune = ["labels", "variables"]
+```
 
 ## Use TOML Instead of Nix
 
@@ -96,8 +113,7 @@ Declare repository rulesets in
 `organizations.<name>.repositories.<name>.rulesets.<name>`. The attribute
 name is the ruleset name. GitHub gives each ruleset an identifier, so the
 switch script finds the ruleset by its name. It updates the ruleset when it
-exists and creates it when it does not. Octonix does not delete rulesets
-that you do not declare. Write `rules` in the form that the GitHub REST API
+exists and creates it when it does not. Write `rules` in the form that the GitHub REST API
 accepts.
 
 ```nix
